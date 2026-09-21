@@ -1,0 +1,201 @@
+/* One visual language for the game's header surfaces. Live text and the
+   existing Blackout Ridge logo remain separate, sharp DOM elements. */
+:root {
+  --game-header-art: url("./assets/images/ui/game-header-art-v4.webp");
+}
+
+.topbar,
+.start-ident,
+.station-entry > header,
+.assembly-header,
+.game-runtime .runtime-hud,
+.act1-image-console .act1-operational-header,
+.act2-runtime .act2-status-header,
+.station-status-toolbar {
+  background-image: radial-gradient(ellipse at center, rgba(1, 7, 10, .72), rgba(1, 7, 10, .28) 66%, transparent), var(--game-header-art);
+  background-position: center, center;
+  background-size: 100% 100%, 100% 360%;
+  background-repeat: no-repeat;
+}
+
+.game-runtime .runtime-hud,
+.assembly-header,
+.topbar,
+.start-ident,
+.station-entry > header,
+.act1-image-console .act1-operational-header,
+.act2-runtime .act2-status-header,
+.station-status-toolbar {
+  border: 0;
+  box-shadow: none;
+}
+
+.act1-image-console .act1-operational-header > div,
+.act2-runtime .act2-status-header > div {
+  border: 0 !important;
+}
+
+.game-runtime .runtime-hud::after,
+.station-entry > header::after {
+  content: none;
+}
+
+.game-runtime .runtime-hud > *,
+.act1-image-console .act1-operational-header > *,
+.act2-runtime .act2-status-header > *,
+.assembly-header > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* The manual has three navigation controls, including the status screen. */
+.game-runtime .runtime-hud {
+  isolation: isolate;
+  overflow: visible !important;
+  height: 60px !important;
+  min-height: 60px !important;
+  padding: 6px 20px !important;
+  gap: clamp(9px, 1.1vw, 17px) !important;
+  align-items: center;
+  background: radial-gradient(ellipse at 50% 42%, rgba(10, 30, 35, .88), rgba(2, 9, 12, .9) 62%, rgba(1, 5, 8, .7)) !important;
+  border-radius: 13px;
+  backdrop-filter: blur(8px) saturate(1.08);
+  text-shadow: 0 2px 5px #000;
+}
+.game-runtime .runtime-hud::before {
+  position: absolute;
+  z-index: 0;
+  inset: -4px -7px;
+  content: "";
+  pointer-events: none;
+  background: var(--game-header-art) center / 100% 100% no-repeat;
+  filter: drop-shadow(0 7px 12px rgba(0, 0, 0, .55)) drop-shadow(0 0 5px rgba(63, 213, 224, .08));
+}
+.game-runtime .hud-brand {
+  min-width: 0 !important;
+  flex: 0 1 270px;
+  gap: 11px;
+}
+.game-runtime .hud-logo {
+  width: 100px !important;
+  height: 52px !important;
+  flex: 0 0 100px;
+  margin: 0;
+  object-fit: contain;
+  object-position: center;
+  transform: translateY(-4px);
+}
+.game-runtime .hud-brand > span { min-width: 0; }
+.game-runtime .hud-brand small {
+  margin: 0;
+  color: #a9c6ce;
+  font: 400 13px/1.15 "Blackout Display", sans-serif !important;
+  letter-spacing: .07em !important;
+}
+.game-runtime .hud-stage {
+  height: 44px;
+  flex: 1 1 230px;
+  grid-template-columns: 62px minmax(0, 1fr) !important;
+  grid-template-rows: 31px 7px;
+  gap: 3px 14px !important;
+}
+.game-runtime .hud-stage-counter { grid-column: 1; grid-row: 1 / 3; align-self: center; }
+.game-runtime .hud-stage-counter small,
+.game-runtime .hud-clock span,
+.game-runtime .hud-stage > b small,
+.game-runtime .hud-role span {
+  font: 600 10px/1 "Blackout Mono", monospace !important;
+  letter-spacing: .1em !important;
+  color: #9ebfc9;
+}
+.game-runtime .hud-stage-counter small { color: #ff8274; }
+.game-runtime .hud-stage-counter strong { font: 400 27px/1 "Blackout Display", sans-serif !important; }
+.game-runtime .hud-stage-counter em { font: 400 11px/1 "Blackout Mono", monospace !important; }
+.game-runtime .hud-stage > div {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: end;
+  display: grid !important;
+  width: 100%;
+  max-width: none;
+  gap: 6px;
+}
+.game-runtime .hud-stage > div i {
+  height: 5px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, rgba(122, 159, 166, .28), rgba(46, 70, 76, .34));
+  clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+}
+.game-runtime .hud-stage > div i.done {
+  background: linear-gradient(90deg, #809ba1, #b7c8cb);
+  box-shadow: 0 0 5px rgba(157, 193, 199, .22);
+}
+.game-runtime .hud-stage > div i.active {
+  background: linear-gradient(90deg, #c91d18, #ff5a4f);
+  box-shadow: 0 0 8px rgba(255, 55, 45, .65);
+}
+.game-runtime .hud-stage > b {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex !important;
+  gap: 4px;
+  font: 400 17px/1 "Blackout Display", sans-serif !important;
+  letter-spacing: .055em;
+}
+.game-runtime .hud-role {
+  flex: 0 1 170px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+.game-runtime .hud-role b {
+  font: 400 16px/1.1 "Blackout Display", sans-serif !important;
+  letter-spacing: .025em !important;
+}
+.game-runtime .hud-clock { flex: 0 0 auto; border: 0; padding: 0; text-align: center; }
+.game-runtime .hud-clock b {
+  font: 700 25px/1 "Blackout Mono", monospace !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .035em;
+  color: #e5fbff;
+}
+.game-runtime .sound-toggle { border: 0; padding: 0 5px; font-size: 11px !important; letter-spacing: .025em; }
+.game-runtime .hud-session { font-size: 11px !important; gap: 5px; }
+.game-runtime .hud-session > span { padding: 0 !important; font-size: 10px !important; color: #9ebfc9; }
+
+@media (max-width: 1100px) {
+  .game-runtime .hud-brand { flex-basis: 100px; }
+  .game-runtime .hud-brand > span { display: none !important; }
+  .game-runtime .hud-session { display: none !important; }
+}
+@media (max-width: 760px) {
+  .game-runtime .runtime-hud { height: 56px !important; min-height: 56px !important; padding: 5px 9px !important; gap: 6px !important; }
+  .game-runtime .runtime-hud::before { inset: -3px -4px; }
+  .game-runtime .hud-brand { flex: 0 0 78px; }
+  .game-runtime .hud-logo { width: 78px !important; height: 44px !important; flex-basis: 78px; transform: translateY(-3px); }
+  .game-runtime .hud-stage { flex: 1 1 50px; display: flex !important; height: 40px; }
+  .game-runtime .hud-stage > div, .game-runtime .hud-stage > b, .game-runtime .hud-role { display: none !important; }
+  .game-runtime .hud-clock { margin-left: 0 !important; padding: 0 !important; }
+  .game-runtime .hud-clock b { font-size: 21px !important; }
+  .game-runtime .hud-stage-counter strong { font-size: 23px !important; }
+  .game-runtime .sound-toggle { font-size: 10px !important; padding: 0 !important; min-width: 44px; }
+}
+
+.act2-runtime.player .act2-manual nav {
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.act2-runtime.player .act2-manual nav button {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .game-runtime .runtime-hud,
+  .assembly-header,
+  .act1-image-console .act1-operational-header,
+  .act2-runtime .act2-status-header {
+    background-position: center, center;
+    background-size: 100% 100%, 100% 360%;
+  }
+}

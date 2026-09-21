@@ -8,7 +8,8 @@
     "dev": "node server/server.js",
     "start": "node server/server.js",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check server/server.js && node --check server/game-engine.js && node --check server/game-content.js && node --check prototype/full-app.js && node --check prototype/network.js && node --check prototype/audio.js && python3 scripts/validate-assets.py",
+    "check:dashboard": "node scripts/check-act2-dashboard.mjs",
+    "check": "node --check server/server.js && node --check server/game-engine.js && node --check server/game-content.js && node --check prototype/full-app.js && node --check prototype/act2-dashboard.js && node --check prototype/network.js && node --check prototype/audio.js && python3 scripts/validate-assets.py",
     "capture:m4": "node scripts/capture-milestone-4-screenshots.mjs",
     "report:m4": "python3 scripts/generate-milestone-reports.py"
   }

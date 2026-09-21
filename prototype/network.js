@@ -14,6 +14,7 @@ export class GameClient {
     this.listeners = new Set();
     this.state = null;
     this.events = null;
+    this.pollTimer = null;
   }
 
   async request(path, options = {}) {
@@ -41,19 +42,19 @@ export class GameClient {
 
   connect() {
     this.events?.close();
-    const query = this.token ? `?token=${encodeURIComponent(this.token)}` : "";
-    this.events = new EventSource(`/api/sessions/${this.code}/events${query}`);
-    this.events.addEventListener("state", (event) => {
-      if (!event.data?.trim()) return;
-      try {
-        this.state = JSON.parse(event.data);
-        this.emit();
-      } catch {
-        // Incomplete SSE frames happen on reconnect; keep the last good state.
-      }
-    });
-    this.events.onerror = () => document.body.classList.add("connection-lost");
-    this.events.onopen = () => document.body.classList.remove("connection-lost");
+    clearTimeout(this.pollTimer);
+    // Short polling avoids the browser's six persistent HTTP/1 connection cap.
+    // A facilitator, shared screen and four player tabs otherwise leave the last
+    // terminals waiting for a connection and make assignments appear sequential.
+    const poll=async()=>{
+      try{
+        const next=await this.request(`/api/sessions/${this.code}/state`);
+        document.body.classList.remove("connection-lost");
+        if(!this.state||next.revision!==this.state.revision){this.state=next;this.emit();}
+      }catch{document.body.classList.add("connection-lost");}
+      this.pollTimer=setTimeout(poll,600);
+    };
+    this.pollTimer=setTimeout(poll,250);
   }
 
   async action(type, payload = {}) {

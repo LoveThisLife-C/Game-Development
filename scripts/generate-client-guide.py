@@ -437,7 +437,7 @@ def build() -> Path:
         ["Version", "1.0 / client delivery edition"],
         ["Prepared", TODAY],
         ["Runtime", "Browser-based synchronized multiplayer game; Node server on port 4173"],
-        ["Supported crew sizes", "2, 4, 5, 6, or 7 participants, plus one facilitator"],
+        ["Supported crew sizes", "4, 5, 6, or 7 participants, plus one facilitator"],
         ["Recommended duration", "Approximately 70 minutes: 5-minute briefing, 43-minute play, 20–25-minute debrief"],
         ["Primary audience", "Client sponsors, workshop producers, facilitators, technical hosts, and new participants"],
     ])
@@ -466,7 +466,7 @@ def build() -> Path:
 
     chapter(doc, "1", "What Blackout Ridge is", "A synchronized leadership simulation about challenging calm automated labels when human reality is incomplete.")
     h2(doc, "1.1 Experience in one paragraph")
-    para(doc, "Blackout Ridge is a live-facilitated, browser-based survival-horror leadership simulation. A storm has damaged a remote relay station, a colleague named Mara Venn is missing, and the station is producing plausible operational conclusions from incomplete data. Every participant receives a different private evidence lens. The group must speak, combine evidence, make seven timed decisions, manage both physical danger and the official record, and then connect the experience to real AI-enabled workplace decisions.")
+    para(doc, "Blackout Ridge is a live-facilitated, browser-based survival-horror leadership simulation. A storm has damaged a remote relay station, a colleague named Mara Venn is missing, and the station is producing plausible operational conclusions from incomplete data. Every participant receives a different private evidence lens. The group must speak, combine evidence, complete seven connected timed challenges, manage physical danger and external response, and then connect the experience to real AI-enabled workplace decisions.")
     h2(doc, "1.2 What the game teaches")
     bullets(doc, [
         ("Challenge the label, not only the number. ", "A clean status can measure the wrong object. OPERATIONAL describes relay transmission, not human safety."),
@@ -495,7 +495,7 @@ def build() -> Path:
     table(doc, ["Act", "Stages", "Escalation"], [
         ["Doubt the handover", "1–2", "Mara is absent; weak human evidence conflicts with calm defaults; lightning then forces the crew to sacrifice future capabilities."],
         ["Follow the contradiction", "3–5", "The disputed signal points away from the road, an exposed field test locates a route beneath the station, and the crew discovers Mara inside a legacy hold."],
-        ["Correct and survive", "6–7", "The crew must replace the false outside record with actionable truth while simultaneously controlling the interlock, carrier, Mara's rescue, and its own air."],
+        ["Learn and evacuate", "6–7", "The crew learns why the Lark Shift rescue arrived too late, then descends into R-12 while preserving air and preparing an actionable external extraction request."],
     ], small=True)
 
     chapter(doc, "2", "Quick start and technical setup", "Everything a host needs to move from a stopped server to a ready room.")
@@ -518,7 +518,7 @@ def build() -> Path:
     ], numbered=True)
     callout(doc, "Network note", "localhost works only on the server machine. Other devices need a reachable LAN or public address and access to TCP port 4173. If a link opens on the host but not on participant devices, check routing/firewall before changing the game.", "warning")
     h2(doc, "2.3 Create a shift")
-    screenshot(doc, "02-host-config.webp", "Command Authority chooses the number of participant terminals before arming the session.", ["Choose 2, 4, 5, 6, or 7 players.", "The facilitator becomes Game Master; they are not counted as a player.", "Arm the shift to create the session code and private facilitator authority."])
+    screenshot(doc, "02-host-config.webp", "Command Authority chooses the number of participant terminals before arming the session.", ["Choose 4, 5, 6, or 7 players.", "The facilitator becomes Game Master; they are not counted as a player.", "Arm the shift to create the session code and private facilitator authority."])
     bullets(doc, [
         "Engage the station from the opening screen.",
         "Choose Command Authority / host mode.",
@@ -567,7 +567,7 @@ def build() -> Path:
         ["Protocol Officer", "Guardrails, uncertainty, receiver requirements, safety thresholds", "Safety Condition"],
         ["Comms Officer (7 players)", "Receiver trust, message clarity, acknowledgement and readback", "Request Readback"],
     ], small=True)
-    callout(doc, "Combined roles", "Two-player games use Command & Field plus Signal & Systems. Four- and five-player games combine selected responsibilities. The story and all seven decisions remain intact; each combined card includes the necessary evidence lenses.", "info")
+    callout(doc, "Crew size and combined roles", "Blackout Ridge is designed for four to seven players. Four-player games combine Command with Protocol and Operations with Field; five-player games combine Field with Protocol. Six-player games redistribute essential Comms evidence, while seven-player games use every responsibility as a separate terminal. Every supported crew size receives the evidence needed to complete all seven acts.", "info")
     h2(doc, "3.3 What to do in every stage")
     screenshot(doc, "04b-player-lead-stage1.webp", "A player terminal now turns each private brief into four plain-language actions: understand the evidence, interpret its confidence, say what matters aloud, and make a recommendation.", ["WHAT YOU KNOW separates evidence from interpretation.", "WHY IT MATTERS connects that evidence to the current crew decision.", "WHAT TO SAY OUT LOUD gives a direct discussion prompt.", "The consequence preview names what the proposed decision preserves, costs, and still leaves unresolved."])
     bullets(doc, [
@@ -637,7 +637,7 @@ def build() -> Path:
     ], small=True)
     h2(doc, "4.4 Consequence screens")
     screenshot(doc, "04e-stage1-consequence-mobile.webp", "Every commitment opens a cause-and-effect reveal before the next stage can begin.", ["THE CREW COMMITTED repeats the exact choice.", "WHAT CHANGED NOW names immediate gains and costs.", "Persistent tracks show the updated pressure.", "WHY THE NEXT STAGE HAPPENS provides the narrative bridge into the escalating emergency."] , width=Inches(3.6))
-    screenshot(doc, "05-shared-stage2.webp", "Stage 2 shared view: power allocation changes which later systems and evidence paths remain available.", ["Before commitment, the preview separates preserved capabilities from costs and warnings.", "After commitment, the consequence freezes the timer and names what changed.", "Only the facilitator advances after the room can explain the cause-and-effect link."])
+    screenshot(doc, "05-shared-stage2.webp", "Stage 2 shared view: twelve equally weighted system panels show the station's true WORKING and FAULT state.", ["The crew chooses one failed system per player.", "Private repair games run simultaneously after assignments lock.", "External traffic changes according to what is working when each message arrives."])
 
     chapter(doc, "5", "Facilitator runbook", "A practical, safe, and repeatable 70-minute delivery sequence.")
     h2(doc, "5.1 Recommended timing")
@@ -685,122 +685,135 @@ def build() -> Path:
     callout(doc, "Spoiler boundary", "Do not give this section to first-time participants unless the client explicitly wants an open-book demonstration. The learning depends on discovering that several calm labels describe system proxies rather than human reality.", "danger")
     h2(doc, "Stage overview")
     table(doc, ["Stage", "Time", "Question", "Required crew decision"], [
-        ["1. Challenge the handover", "4 min", "Which defaults need human review?", "Hold exactly 3 of 5 proposed statements"],
-        ["2. Keep the station alive", "5 min", "Which future capabilities survive?", "Power exactly 3 of 6 optional circuits"],
-        ["3. Decide what to trust", "6 min", "Which traffic deserves scarce reconstruction?", "Allocate exactly 3 signal slots"],
-        ["4. Test Lower Route", "6 min", "Is Lower Route the flooded road?", "Runner, destination, abort rule; then 3 moves"],
-        ["5. Open the buried station", "7 min", "How can Mara be verified without trapping more people?", "Hatch procedure, respirator use, watcher"],
-        ["6. Build the truth", "6 min", "Can Cordon act on a verified correction?", "Five-part correction; possible shorter retry"],
-        ["7. Survive the correction", "9 min", "Can the crew control physical and official truth together?", "Two rounds across Lock, Signal, People"],
+        ["1. Account for the outgoing shift", "6 min", "Did each outgoing staff member actually depart?", "Record one collective YES/NO answer for each of 6 people"],
+        ["2. Repair what the station needs", "3 + 5 min", "What can the damaged station still do?", "Assign one different repair per player; complete simultaneous one-shot games"],
+        ["3. Build the outside plan", "7 min", "Which two sites restore human communications?", "Inbound site, outbound site, first target, exactly 2 specialist items"],
+        ["4. Execute the outside run", "8 min", "Can the crew execute both locked field services?", "Assign runner; complete 2 observation/instruction/action games"],
+        ["5. Keep the cabin breathable", "4 min", "How long can the crew preserve breathable air as the plume worsens?", "Rotating cabin controls; Act 6 time; R-12/Mara reveal"],
+        ["6. The Lark Shift", "3–6 min", "Why did six people die after R-12 protected them?", "Search history, then teach every player the R-12 operating procedure"],
+        ["7. Get Below", "8–10 min", "Can everyone reach R-12 without repeating the Lark Shift?", "Sequential transfers, shared purge and a solo surface procedure"],
     ], small=True)
 
-    h2(doc, "6.1 Stage 1 — Challenge the handover")
-    screenshot(doc, "04c-facilitator-stage1.webp", "Stage 1 facilitator view with five plausible defaults and exactly three available audit holds.")
+    h2(doc, "6.1 Stage 1 — Account for the outgoing shift")
+    screenshot(doc, "04c-facilitator-stage1.webp", "Stage 1 facilitator view for recording the crew's six collective departure answers.")
     bullets(doc, [
-        ("Situation. ", "The outgoing crew left hurriedly. Mara is absent. The station calmly fills gaps with five defaults."),
-        ("Decision. ", "Hold exactly three: Local Service Fault; No Wider Risk Confirmed; Venn on Lower Route Field Check; Road Feed Has Priority; Discard Voice as Weather Interference."),
-        ("Information join. ", "Signal/Systems provenance must meet Field/Protocol human or rule conflict. No single card explains Lower Route."),
-        ("Strong pattern. ", "Keep Mara and the weak voice visible; question the stale road interpretation."),
-        ("Facilitator watch. ", "Do players distinguish observed facts from inferred labels? Ask, “Which line has a named source, timestamp, or human confirmation?”"),
-        ("Handoff. ", "A mast strike interrupts the handover and forces degraded-power allocation."),
+        ("Situation. ", "An ordinary night shift begins while the station reports PERSONNEL EXCEPTIONS: NONE RAISED. Six outgoing staff members must be accounted for before rollover."),
+        ("Decision. ", "For Ellie Hart, Noor Hale, Jamie Arlen, Saira Rowan, Kai Kessler and Mara Venn, decide whether the available evidence is sufficient to show that person departed Blackout Ridge."),
+        ("Information join. ", "Departure, task, vehicle, badge and communications records sit on different private terminals. No participant—including the facilitator—has a complete privileged view."),
+        ("Designed false alarm. ", "Noor's rover remains at Ridge and the loading-point scan proves only arrival there. Noor is accounted for only when the crew joins those records with Calder Vale's external shuttle readback."),
+        ("Crew-size safeguard. ", "At four and five players, the absent Comms evidence is combined into the Signal terminal. At six players, explicit supplements preserve the same required joins."),
+        ("Facilitator watch. ", "Ask participants to state what their record proves and what it merely suggests. Enter only the answer the crew agrees for each person."),
+        ("Resolution. ", "Submission and timeout reveal no correctness score and create no later mechanical bonus or penalty."),
+        ("Handoff. ", "The completed handover is interrupted by a lightning strike that damages station systems."),
     ])
-    callout(doc, "Do not reveal", "Do not explain what Lower Route means. Its ambiguity is the spine connecting Stages 1–5.", "danger")
+    callout(doc, "Do not reveal", "Do not confirm correct answers. The purpose is to establish how the crew shares and tests incomplete operational records.", "danger")
 
-    h2(doc, "6.2 Stage 2 — Keep the station alive")
-    screenshot(doc, "06-facilitator-stage2.webp", "Stage 2 facilitator controls: Main Relay is mandatory and exactly three optional circuits can remain live.")
-    table(doc, ["Circuit", "What it protects", "Cost if unavailable"], [
-        ["Signal Buffer", "Replay and provenance of later voice traffic", "Evidence becomes one-shot or partial"],
-        ["Military Channel", "Verified readback path to Cordon", "Outside trust is harder to establish"],
-        ["Road Feed", "Road camera context", "The feed is stale and can reinforce the wrong route"],
-        ["Lower Route Feed", "Legacy route information", "Physical evidence must substitute"],
-        ["Lock Control", "Remote telemetry/stabilisation", "Manual safeguard or override is required later"],
-        ["Air Handling", "Cancels one Upper Air escalation", "Surface reaches Critical earlier"],
+    h2(doc, "6.2 Stage 2 — Repair what the station needs")
+    screenshot(doc, "06-facilitator-stage2.webp", "Stage 2 facilitator controls for assigning one distinct amber FAULT panel to every player.")
+    screenshot(doc, "06a-shared-repairs-active.webp", "Once assignments lock, the shared console shows all active repairs and the first developing external transmission.")
+    screenshot(doc, "06b-player-inbound-repair.webp", "A private Inbound Receive repair uses a one-screen sequencing problem; its server-held solution is not visible to other terminals.")
+    screenshot(doc, "06c-player-outbound-repair.webp", "Human Outbound uses a different routing problem, separating human messages from automatic status traffic.")
+    screenshot(doc, "06d-player-inbound-mobile.webp", "The private repair workflow remains readable and fully scrollable on a phone.", width=Inches(3.6))
+    table(doc, ["System group", "What the crew sees", "Rule"], [
+        ["Seven consequential systems", "Inbound Receive; Human Outbound; Status Beacon; Tower Monitoring; Air Quality Monitoring; Received Traffic Log; Source Identification", "Only ranks 1–X begin broken for X players; ranking is hidden"],
+        ["Two credible alternatives", "Backup Power Balance; Fire Suppression Control", "Always begin broken and repair genuinely, but do not matter later in this scenario"],
+        ["Three surviving systems", "Road/Flood Monitoring; Lower Road Camera; Ventilation Control", "Remain WORKING and cannot be selected"],
     ], small=True)
     bullets(doc, [
-        "Ask what later proof or safeguard each circuit preserves; do not frame this as points optimization.",
-        "Main Relay is already mandatory and does not consume one of the three optional selections.",
-        "The exact combination changes evidence clarity, trust, air, and finale feasibility; play always continues.",
-        "Handoff: degraded mode reveals overlapping official traffic, correction bursts, and a human cadence.",
+        "Allow about three minutes for the Systems Manual and prioritisation. Enter the team’s choices without advising them.",
+        "Every player receives one different repair. The five-minute repair window runs simultaneously on private terminals.",
+        "Each puzzle is a system-related reasoning task with one submission and no retry; success takes effect immediately.",
+        "The twelve-panel layout interleaves consequential, alternative and surviving systems so position does not reproduce the hidden ranking.",
+        "The Traffic Log area exposes the exact clear pre-strike Calder Vale baseline separately from live incident traffic.",
+        "COMM-01 always arrives degraded. Later clarity, attribution and storage depend separately on Inbound Receive, Source Identification and Received Traffic Log.",
+        "With shared-station audio enabled, recorded transmissions play in arrival order; the matching accessible transcript remains visible.",
+        "Show the final true station state without a score or hint about which choices will matter later.",
+        "Handoff: a central external distribution failure takes field infrastructure and Ventilation Control offline for Act 3.",
     ])
 
-    h2(doc, "6.3 Stage 3 — Decide what to trust")
-    screenshot(doc, "07-shared-stage3.webp", "Stage 3 shared station: clean official traffic competes with degraded voice and correction bursts.")
-    screenshot(doc, "08-player-signal-stage3.webp", "Signal Analyst private evidence supplies cadence and provenance unavailable on the shared display.")
+    h2(doc, "6.3 Stage 3 — Build the outside plan")
+    screenshot(doc, "07-shared-stage3.webp", "Stage 3 shared station: four red external outages, four genuine field faults and fixed T+0 route conditions.")
+    screenshot(doc, "08-player-signal-stage3.webp", "Signal Analyst private evidence distinguishes the inbound receive coupler from the human-outbound send bridge.")
     bullets(doc, [
-        ("Decision. ", "Allocate exactly three signal-processing slots across RX-04 voice, official bulletin, and AUX-04 correction burst. Preserve/replay/quarantine/discard have different costs."),
-        ("Strong reasoning. ", "Preserve the raw human signal and source header; use multiple roles to connect cadence, legacy controller, Mara’s missing route tag, and stale clean data."),
-        ("Facilitator watch. ", "Players may equate clarity with truth. Ask, “Does clean data mean current data?”"),
-        ("Consequence. ", "The road interpretation breaks: the evidence increasingly points beneath the station, not downhill."),
-        ("Handoff. ", "Cordon permits one short external movement window to physically test the route assumption."),
+        ("Decision. ", "Enter one planned inbound location, one different human-outbound location, the first selected target, and exactly two items from Gas Mask, Flood Response Kit, High-Access Kit and Specialist Service Toolkit."),
+        ("Evidence join. ", "Participants must connect failed FUNCTION to COMPONENT behavior and then to LOCATION characteristics. Every site has a genuine fault, so site labels cannot solve the problem."),
+        ("Physical check. ", "The interface calculates arrival, service completion, plume exposure and required equipment from fixed runner deployment T+0. It checks feasibility only and never confirms the communications diagnosis."),
+        ("State-sensitive evidence. ", "Working Tower Monitoring supplies two current component symptoms and one unresolved R-12 legacy reference. If it is broken, other role clues still make the plan fully solvable. Traffic Log contains only messages stored at arrival."),
+        ("Order consequence. ", "C→D works with Flood Response + High-Access. D→C crosses the respiratory threshold at C and would also require a Gas Mask, making that reverse route impossible with two items."),
+        ("Horror interruption. ", "The unidentified ‘twelve … twelve … route’ transmission is unstored obsolete-infrastructure traffic. It is atmosphere and future setup, not a plan answer."),
+        ("Handoff. ", "The plan locks without correctness feedback and the runner leaves at T+0."),
+    ])
+    callout(doc, "Do not reveal", "Never say that a selected communications location is right or wrong. Give only practical feedback such as duplicate sites, missing equipment, route order or respiratory threshold.", "danger")
+
+    h2(doc, "6.4 Stage 4 — Execute the outside run")
+    screenshot(doc, "10-outside-run-runner.webp", "Runner terminal: physical observation and three possible one-shot actions, with no access to the station manual.", ["Describe every visible condition aloud.", "Wait for a station instruction.", "Commit one physical action; there is no retry."])
+    screenshot(doc, "10a-outside-run-station.webp", "Station terminal: interpretation table and instruction controls, with no access to the runner's private observation.")
+    screenshot(doc, "11-outside-run-facilitator.webp", "Facilitator oversight shows both sides for technical recovery while preserving the locked route and one-attempt rule.")
+    bullets(doc, [
+        ("Locked input. ", "Assign one runner. The two destinations, visit order and specialist equipment carry forward unchanged from Act 3."),
+        ("Core loop. ", "At each location: runner observes and describes → station matches the complete condition to a procedure → station sends one instruction → runner commits one action."),
+        ("Physical translation. ", "The station manual uses procedural terms while the runner controls use visible handles, tabs, vanes and landmarks. The crew must translate the instruction rather than copy an identical button label."),
+        ("Information split. ", "The runner cannot read the manual; station players cannot see the installation. The shared screen exposes neither private puzzle side."),
+        ("No retry. ", "A failed service remains NOT RESTORED and the runner continues to the second committed destination. Never substitute a third site."),
+        ("Location consequences. ", "A restores inbound availability; B restores human-outbound availability; C restores camera/history and may show Mara returning toward Ridge; D restores ventilation infrastructure and later purge."),
+        ("Communications model. ", "Act 4 determines availability. Act 2 determines quality: a restored external path is FULL if its station system works, otherwise DEGRADED."),
+        ("Guardrails. ", "Local runner radio stays clear. Each active service repeats the locked Act 3 arrival, completion and concentration as visible reality, but there is no new route, equipment or gas-management decision."),
+        ("Handoff. ", "After service two, the runner returns and the dashboard reveals the recovered operational combination without scoring the Act 3 diagnosis."),
     ])
 
-    h2(doc, "6.4 Stage 4 — Test Lower Route")
-    screenshot(doc, "10-outside-run-runner.webp", "Only the named runner receives the active Observe / Advance / Withdraw field controls.", ["The air meter and abort threshold stay visible.", "Advance can reveal more evidence but consumes exposure/filter margin.", "Withdraw ends the run under the named safeguard."])
-    screenshot(doc, "11-outside-run-facilitator.webp", "The facilitator sees runner progress, meter trend, guidance budget, and authoritative incident state.")
+    h2(doc, "6.5 Stage 5 — Keep the cabin breathable")
+    screenshot(doc, "12-cabin-air-stage5.webp", "Shared cabin-air board: rising plume, cabin pressures, filter loads, current configuration and strict turn rotation.")
+    screenshot(doc, "13-facilitator-cabin-air-stage5.webp", "Facilitator oversight of the same live cabin model; controls act for the currently named player only.")
+    screenshot(doc, "13a-player-cabin-air-stage5.webp", "Private terminal: the same compact controls are available to every member, but only the named active player can act.")
+    screenshot(doc, "13b-r12-mara-reveal-stage5.webp", "Automatic post-game reveal: the integrity sweep identifies sealed hold R-12 and the dormant camera definitively shows Mara alive.")
     bullets(doc, [
-        ("Commit first. ", "Station Lead selects runner, destination, and an explicit abort rule."),
-        ("Run second. ", "The named runner makes up to three moves: Observe/Verify, Advance/Accept Exposure, or Withdraw on Abort Rule."),
-        ("Guidance. ", "The crew has only three short guidance bursts; use them for facts and safeguards, not conversation."),
-        ("Hard boundary. ", "At 18 ppm the meter forces withdrawal. The respirator is protection for withdrawal, not permission to ignore the limit."),
-        ("Intended discovery. ", "No road tracks, unopened repeater, or conduit evidence can show that Lower Route points beneath the cabin."),
-        ("Handoff. ", "The conduit terminates beneath rack B and reveals a containment hatch."),
+        ("Objective. ", "For four continuous minutes, keep the one occupied cabin breathable while outside contamination rises."),
+        ("Rotation. ", "Players discuss freely. Only the named active terminal makes one change; control then passes automatically to the next present role."),
+        ("Tradeoffs. ", "Sealing slows toxin but raises CO₂. Recirculation filters toxin but loads the selected bank. Exhaust lowers CO₂ while drawing plume inward. No setting stays safe."),
+        ("Monitoring consequence. ", "Working Air Quality displays exact readings. If broken, the identical model remains playable through LOW, RISING, HIGH and CRITICAL warnings."),
+        ("Upper Ridge consequence. ", "A restored service provides two finite Emergency Purge charges. Purge is strongest with sealed intake and recirculation, but cannot reset the cabin."),
+        ("Performance consequence. ", "Sustained cabin condition grants a guaranteed 180–360 second investigation window in Act 6; move count and the final switch positions do not score."),
+        ("Automatic reveal. ", "At timeout, an integrity sweep finds sealed auxiliary volume R-12. An old plan identifies Lower Route beneath the cabin and the dormant feed shows Mara Venn alive inside. Access remains locked."),
     ])
 
-    h2(doc, "6.5 Stage 5 — Open the buried station")
-    screenshot(doc, "12-hatch-stage5.webp", "Shared containment-hatch decision: verify the occupied hold without turning the interlock into a trap.")
-    screenshot(doc, "13-facilitator-stage5.webp", "Facilitator view of procedure, respirator allocation, watcher assignment, and accumulated station state.")
+    h2(doc, "6.6 Stage 6 — The Lark Shift")
+    screenshot(doc, "14-lark-history-stage6.webp", "Phase 1: searchable short records reconstruct the Lark Shift without blaming people facing an impossible situation.")
+    screenshot(doc, "14a-r12-technical-stage6.webp", "Phase 2: the R-12 operating archive pins the three separate finale tasks for every possible surface operator.")
     bullets(doc, [
-        ("Decision. ", "Choose Remote Inspect, Controlled Crack + Watcher, Full Override + Descent, or Delay; assign respirator use and watcher."),
-        ("Strong pattern. ", "Controlled crack or viable remote stabilisation establishes lock knowledge while preserving an upper safeguard."),
-        ("Risk. ", "Fast descent may locate Mara but consume the override, worsen air, or trap additional people."),
-        ("Reveal. ", "The Auxiliary Relay Hold is an old workplace. The Lark status log remained OPEN while the relay reported OPERATIONAL. Mara is below."),
-        ("Learning turn. ", "OPERATIONAL measures relay transmission, not whether the people inside are safe."),
-        ("Handoff. ", "The outside record must now be corrected before NO ACTIVE DISTRESS files."),
+        "Use exactly the 180–360 seconds earned in Stage 5; the archive closes automatically and has no scored answer.",
+        "Phase 1 establishes ordinary start, gradual symptoms, rational checks, fear, deliberate refuge entry, secure isolation, no extraction request, false status and delayed fatal recovery. The initiating cause remains unresolved.",
+        "At the midpoint, Phase 2 explains transfer contamination, finite protected air, conditional three-cycle purge and the retained release console.",
+        "Every player must learn DISTRESS → EXTRACTION MESSAGE → RELEASE CONFIGURATION because descent order is hidden and microphones below will be muted.",
+        "Searches and opened records are client-side only; inbound communications are atmospheric and never gate required information.",
     ])
 
-    h2(doc, "6.6 Stage 6 — Build the truth")
-    screenshot(doc, "14-correction-stage6.webp", "The five-slot emergency correction builder makes the message specific and actionable.", ["Name the invalid status.", "Name the human and location plus current hazard.", "Cite verified evidence and request a concrete outside action."])
-    table(doc, ["Correction slot", "Strong content"], [
-        ["Invalid status", "OPERATIONAL STATUS INVALID"],
-        ["Human / location", "MARA VENN / LOWER ROUTE HOLD"],
-        ["Current hazard", "CONTAINMENT LOCK + CONTAMINATED AIR"],
-        ["Evidence", "Best verified evidence earned from prior stages"],
-        ["Requested action", "Reclassify as Human Rescue / Extraction"],
-    ])
+    h2(doc, "6.7 Stage 7 — Get Below")
+    screenshot(doc, "15-finale-stage7.webp", "The shared display shows evacuation progress and refuge condition without revealing the hidden order.")
+    screenshot(doc, "15a-active-transfer-stage7.webp", "Only the active participant receives the physical transfer; slower movement worsens shared R-12 air.")
+    screenshot(doc, "15b-final-surface-stage7.webp", "The final hidden participant receives the 30-second surface dashboard alone, using only rules taught in Act 6.")
     bullets(doc, [
-        "Accepted: sufficient specific components and credible route to Cordon; External Trust becomes Credible.",
-        "Conditional: the finale Signal lane must supply missing corroboration.",
-        "Rejected: Official Status advances and one shorter retry opens before the finale.",
-        "Do not write the message for the crew. Ask which outside decision the message must change.",
-    ])
-
-    h2(doc, "6.7 Stage 7 — Survive the correction")
-    screenshot(doc, "15-finale-stage7.webp", "Stage 7 shared view with Mara visible, 93% final carrier integrity, Critical Upper Air, and the two parallel stakes.", ["Lock controls the physical truth.", "Signal controls the official truth.", "People actions determine Mara and crew outcomes."])
-    table(doc, ["Lane", "Options", "What makes it viable"], [
-        ["Lock", "Remote Stabilise; Physical Hold + Watcher; Full Override; Leave Interlock", "Prior power/knowledge plus correct safeguard"],
-        ["Signal", "Transmit; Corroborate; Maintain Carrier; Abandon Signal", "Matches correction state and available evidence"],
-        ["People", "Extract Mara; Supply Air + Rescue Path; Verify Location; Evacuate Ridge", "Coexists with a controlled lock and realistic crew condition"],
-    ], small=True)
-    bullets(doc, [
-        "The crew commits two rounds. Round 1 establishes the action plan; Round 2 reinforces or changes it.",
-        "All three lanes need named available owners. Full crews require three distinct owners; duo crews must represent both participants.",
-        "The facilitator sees the calculated ending preview privately after Round 2.",
+        "The server-held random sequence activates one player at a time. Nobody sees an assigned position.",
+        "Every transfer completes. Slower play, mistakes and timeout worsen shared R-12 contamination.",
+        "Players below cannot coach the surface but may independently use shared purge cycles when Upper Ridge was restored.",
+        "The final operator configures DISTRESS, sends a usable extraction request and enables authorised release before descending.",
+        "The facilitator classifies the committed message by useful content, never grammar or style.",
+        "Final air plus occupancy produces survival time; effective status, message and release produce rescue time. Their margin selects the ending.",
         "Confirm the final record only after checking for a genuine technical mis-entry. Do not change it to improve the outcome.",
     ])
 
     chapter(doc, "7", "Endings and debrief", "Let the consequence land, then turn the experience into a concrete workplace action.")
     h2(doc, "7.1 Ending preview and confirmation")
     screenshot(doc, "16-ending-preview.webp", "The facilitator privately previews the calculated ending before confirming the final record.")
-    table(doc, ["Lock", "Correction", "Canonical result", "Meaning"], [
-        ["Controlled", "Accepted", "Clean Rescue", "Physical danger controlled and outside rescue status corrected"],
-        ["Controlled", "Not accepted", "Dark Hold", "Immediate trap avoided, but the official picture remains wrong"],
-        ["Failed", "Accepted", "Last Broadcast", "Hold seals, but rescue knows who and where people are"],
-        ["Failed", "Not accepted", "Filed Safe", "Hold seals while the station reports no active distress"],
+    table(doc, ["Ending band", "Survival versus rescue", "Human consequence"], [
+        ["Clean Rescue", "Comfortable positive margin", "Mara and crew recovered alive"],
+        ["Close / Severe Rescue", "Responders arrive near the limit", "Everyone recovered with serious consequences"],
+        ["Rescue With Casualties", "Safe window exceeded", "Recovery succeeds but includes fatalities"],
+        ["Lark Shift Echo", "Catastrophic negative margin", "Responders open R-12 too late"],
     ])
-    para(doc, "Human modifiers can produce Costly Rescue, Joined Below, Flee Ridge, or Station Loss. The ending separates Mara’s condition, crew survival, lock control, and official status. It is never displayed as a numerical score.")
+    para(doc, "The calculation remains hidden during play. The ending explains effective status, extraction message and release, then compares refuge survival time with rescue time without assigning individual casualties mechanically.")
     h2(doc, "7.2 Clean Rescue presentation")
-    screenshot(doc, "17-ending-clean-rescue.webp", "A Clean Rescue keeps Mara visible as the visual reward for controlling both physical and official truth.", ["The interlock is controlled.", "The correction is accepted.", "Mara is extracted or has a verified rescue path; crew condition is stated separately."])
-    callout(doc, "Visual logic", "Mara’s photograph appears during active Stage 7. In the final presentation it remains prominent for the Clean Rescue success; costly/failed endings use the hold environment instead.", "info")
+    screenshot(doc, "17-ending-clean-rescue.webp", "A Clean Rescue keeps Mara visible as the visual reward for preserving enough air and minimising external rescue delay.", ["Distress propagated externally.", "The extraction message was clear and authorised release was enabled.", "R-12 survival time exceeded responder arrival time by a comfortable margin."])
+    callout(doc, "Visual logic", "Mara’s photograph appears during active Stage 7. The final presentation keeps her prominent for Clean and Close/Severe Rescue, where Mara and the crew are recovered; casualty and Lark Shift Echo outcomes use the hold environment.", "info")
     h2(doc, "7.3 Six-step debrief")
     screenshot(doc, "18-debrief-facilitator.webp", "The facilitator advances one synchronized debrief step, records observations, and monitors participant first steps.")
     table(doc, ["Step", "Prompt purpose", "Facilitator move"], [
@@ -826,7 +839,7 @@ def build() -> Path:
 
     chapter(doc, "8", "Explaining the game to a client", "A concise commercial and learning explanation for sponsors, observers, and delivery partners.")
     h2(doc, "8.1 Thirty-second description")
-    callout(doc, "Client elevator pitch", "“Blackout Ridge is a 70-minute, browser-based leadership simulation for two to seven participants. A remote station is making calm operational claims from incomplete data while a colleague is missing. Each participant sees different evidence, so the group must challenge automated labels, combine perspectives, act under uncertainty, and correct an outside decision before the record hardens. The debrief connects those behaviors directly to AI-enabled work.”", "success")
+    callout(doc, "Client elevator pitch", "“Blackout Ridge is a 70-minute, browser-based leadership simulation for four to seven participants. A remote station is making calm operational claims from incomplete data while a colleague is missing. Each participant sees different evidence, so the group must challenge automated labels, combine perspectives, act under uncertainty, and make an extraction request that an outside responder can use. The debrief connects those behaviors directly to AI-enabled work.”", "success")
     h2(doc, "8.2 Why the survival-horror format matters")
     bullets(doc, [
         "Urgency makes the cost of passive trust visible without requiring specialist technical knowledge.",
@@ -841,8 +854,8 @@ def build() -> Path:
         ["Surfaces missing people", "Names Mara or the absent shift rather than accepting occupancy abstraction", "People and adoption"],
         ["Uses bounded action", "Names a route, owner, abort rule, or safeguard", "Value discovery / risk and guardrails"],
         ["Shares private evidence", "Reports confidence and provenance without overclaiming", "Cross-functional collaboration"],
-        ["Corrects for receiver action", "Specifies invalid status, human/location, evidence, and requested change", "External trust and communication"],
-        ["Balances both stakes", "Protects lock/crew and signal/official record simultaneously", "Accountability and systems thinking"],
+        ["Communicates for receiver action", "Specifies occupancy, unsafe conditions, location and required extraction", "External response and communication"],
+        ["Balances both stakes", "Preserves refuge air while reducing responder delay", "Accountability and systems thinking"],
     ], small=True)
     h2(doc, "8.4 Suggested 12-minute client demonstration")
     bullets(doc, [
@@ -850,15 +863,15 @@ def build() -> Path:
         "Minute 2–4: open shared, player, and facilitator views side by side; explain privacy boundaries.",
         "Minute 4–6: show Stage 1 unequal evidence and the recommendation route.",
         "Minute 6–8: open Crew Chat and show role colors plus synchronized alerts.",
-        "Minute 8–10: jump to Stage 4 or Stage 6 to demonstrate bounded action and structured correction.",
-        "Minute 10–11: show Stage 7 Mara visual and the parallel Lock / Signal / People stakes.",
+        "Minute 8–10: jump to Stage 4 or Stage 6 to demonstrate bounded action and the searchable Lark Shift investigation.",
+        "Minute 10–11: show the hidden-order transfer, final surface dashboard, and the air-survival versus rescue-delay calculation.",
         "Minute 11–12: show the ending and six-step debrief; close with the exported evidence record.",
     ], numbered=True)
     h2(doc, "8.5 Delivery success criteria")
     bullets(doc, [
         "Participants can explain why OPERATIONAL was unsafe without saying the system was simply broken.",
         "Every role contributes a fact, question, recommendation, intervention, guidance burst, or finale ownership.",
-        "The group distinguishes physical safety from the correctness of the official record.",
+        "The group distinguishes station operational status from human safety and external rescue readiness.",
         "The facilitator uses no more than one technical correction and does not need to reveal answers.",
         "Most participants identify one real workplace output whose source, proxy, or confidence they will clarify.",
         "The session fits the agreed time and all participant-care requests are handled without public explanation.",
@@ -870,14 +883,14 @@ def build() -> Path:
         ["Game link does not open", "Server stopped, wrong address, blocked port", "Check /api/health; restart npm run dev; verify firewall/routing"],
         ["Player sees join screen again", "Missing/incorrect player token or different browser", "Use original player link; avoid copying facilitator/shared URLs"],
         ["Role cannot be selected", "Already claimed or wrong crew configuration", "Refresh roster; facilitator reassigns only if necessary"],
-        ["Start button disabled", "Not all players connected or care brief unconfirmed", "Complete roster and confirm participant care"],
+        ["Start button disabled", "Not all configured player terminals are connected", "Complete the configured roster, then start the shift"],
         ["Recommendation appears to do nothing", "Blank text, network delay, or subtle prior UI state", "Enter text; press Share with Station Lead; look for RECOMMENDATION SHARED"],
         ["Other players cannot read recommendation", "Designed privacy boundary", "Station Lead/facilitator receive text; use voice or Crew Chat for full-group discussion"],
         ["Chat message not visible", "Viewing shared screen, offline tab, or blank message", "Use authenticated player/facilitator view; reconnect; resend nonblank message"],
         ["Shared display has no chat", "Designed privacy boundary", "Use player/facilitator terminal; shared view intentionally cannot read/post"],
         ["Clock is wrong after interruption", "Connection delay or paused state", "Facilitator Pause/Resume; use +30 sec only for technical loss"],
         ["Player cannot act", "Marked absent/observer or not the assigned runner/lead", "Facilitator marks present; check role ownership"],
-        ["Mara photo not visible at ending", "Ending is not Clean Rescue", "Expected visual logic; Mara appears during active Stage 7 and successful final outcome"],
+        ["Mara photo not visible at ending", "Ending is Rescue With Casualties or Lark Shift Echo", "Expected visual logic; Mara appears during active Stage 7 and both all-survivor rescue outcomes"],
         ["Audio is silent", "Audio is opt-in or browser blocked playback", "Press Audio once; continue silently if preferred"],
     ], small=True)
     h2(doc, "9.2 Connection recovery")
@@ -910,7 +923,7 @@ def build() -> Path:
     h2(doc, "Appendix A — Pre-session checklist")
     for item in [
         "Server is running and /api/health returns ok: true.",
-        "Correct crew size selected: 2, 4, 5, 6, or 7.",
+        "Correct crew size selected: 4, 5, 6, or 7.",
         "Facilitator console is private and recoverable.",
         "Crew link tested on a second device.",
         "Shared display opens read-only and is visible at 100% zoom.",
@@ -939,20 +952,20 @@ def build() -> Path:
         "What are you treating as observed versus inferred?",
         "What bounded move would test the most dangerous assumption?",
         "What must the outside receiver do differently after your message?",
-        "Who owns Lock, Signal, and People?",
+        "Which player is active, which are waiting, and which are now isolated below?",
     ])
     h3(doc, "Ending transition")
     para(doc, "Before we explain the system, take ten seconds to notice the difference between what the station recorded and what happened to the people. We will reconstruct that gap together.")
 
     h2(doc, "Appendix C — One-page facilitator card")
     table(doc, ["Stage", "Decision rule", "One useful prompt", "Advance when"], [
-        ["1", "Exactly 3 holds", "Which statement lacks a human/source check?", "Consequence read"],
-        ["2", "Exactly 3 optional circuits", "What later capability dies here?", "Consequence read"],
-        ["3", "Exactly 3 signal slots", "Is clean the same as current?", "Consequence read"],
-        ["4", "Runner + destination + abort; 3 moves", "What makes withdrawal automatic?", "Run resolves/withdraws"],
-        ["5", "Procedure + respirator + watcher", "Who maintains the upper safeguard?", "Consequence read"],
-        ["6", "Five correction components", "Which outside action must change?", "Accepted/conditional/retry resolved"],
-        ["7", "Two rounds; Lock + Signal + People owners", "Are both truths controlled?", "Preview checked; final record confirmed"],
+        ["1", "YES/NO for all 6 staff", "What proves departure rather than completed work?", "Handover closes"],
+        ["2", "1 unique failed system per player; 1 submission each", "Which distinct capability are you trying to restore?", "All submit or repair clock ends"],
+        ["3", "2 locations + first target + exactly 2 items", "Can you show function → component → location?", "Plan is physically viable; no diagnosis score"],
+        ["4", "Locked route; 2 one-shot services", "Which manual row matches every observation?", "Both selected sites resolve"],
+        ["5", "One cabin-control move per active player", "Which pressure improves, and which worsens?", "Automatic R-12/Mara reveal"],
+        ["6", "Timed two-phase archive; no scored answer", "What made the Lark Shift rescue arrive too late?", "Archive window closes automatically"],
+        ["7", "Sequential transfers + solo surface operator", "Will survival time exceed rescue time?", "Message classified; preview checked; final record confirmed"],
     ], small=True)
     callout(doc, "Always remember", "Safety outranks pacing. Technical recovery may restore the recorded intention; it must never be used to manufacture a better ending.", "danger")
 
@@ -973,12 +986,12 @@ def build() -> Path:
     ])
 
     h2(doc, "Appendix E — Screenshot index")
-    para(doc, f"This guide contains {FIGURE} illustrated figures drawn from 27 current runtime screenshots captured during a complete isolated six-player session. Source images are stored beside this document in docs/client-guide/screenshots/ for client presentation reuse.")
+    para(doc, f"This guide contains {FIGURE} illustrated figures drawn from {len(list(SHOTS.glob('*.webp')))} current runtime screenshots captured during a complete isolated six-player session. Source images are stored beside this document in docs/client-guide/screenshots/ for client presentation reuse.")
     table(doc, ["Coverage", "Figures included"], [
         ["Onboarding", "Boot, host configuration, join flow, assembly lobby"],
         ["Core interfaces", "Shared station, private player terminal, facilitator console, mobile views"],
         ["Communication", "Private recommendation workflow and open multi-color Crew Chat"],
-        ["Seven stages", "Handover, power, signals, Outside Run, hatch, correction, finale"],
+        ["Seven stages", "Handover, repairs, Outside Plan, Outside Run, cabin air, Lark archive, evacuation finale"],
         ["Outcomes", "Ending preview, Clean Rescue with Mara, facilitator/player debrief, playtest record"],
     ])
     p = doc.add_paragraph()

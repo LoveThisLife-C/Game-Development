@@ -1,13 +1,18 @@
 # Blackout Ridge
 
 Blackout Ridge is a full-screen, live-facilitated multiplayer decision game for
-2 or 4–7 players. It is designed as a cinematic emergency-station experience—not a
+4–7 players. It is designed as a cinematic emergency-station experience—not a
 content website. Voice conversation happens in the room or on a call while the
 game supplies a shared station display, private role instruments, timed
 decisions, consequences, and a dedicated facilitator console.
 
 The original concept is in
-`blackout_ridge_game_designer_viability_brief_v0_7 (1).docx`.
+`docs/client-input/blackout_ridge_game_designer_viability_brief_v0_7 (1).docx`.
+
+The runtime now implements all seven acts defined in
+`docs/client-input/Blackout_Ridge_Designer_Specification_Production.docx`. See
+[the production migration record](docs/PRODUCTION-SPECIFICATION-MIGRATION.md)
+for the acceptance evidence for every act.
 
 ## Run the game
 
@@ -31,26 +36,27 @@ chooses one unclaimed role.
   and commit readiness before the crew locks in a choice.
 - Plain-language Participant Notes structured as what you know, confidence,
   why it matters, and what to say aloud.
-- A playable three-move Outside Run with an assigned runner, three private
-  guidance bursts, exposure, abort, findings, and respirator consequences.
-- A two-attempt structured emergency correction, including the shortened,
-  worsening retry after a rejected first transmission.
-- Playbook role configurations for 4–7 players, plus a two-player variant. Combined
-  terminals preserve every responsibility, private evidence, and one-use role override.
+- A locked two-stop Outside Run with an assigned runner, four distinct
+  cooperative service games, asymmetric observations/procedures, one attempt
+  per site, and persistent communications, camera, or ventilation outcomes.
+- A timed two-phase Lark Shift investigation with searchable local records,
+  accessible newsreel, R-12 operating rules and an all-player surface checklist.
+- Production role configurations for 4–7 players. Smaller crews use combined
+  responsibilities without removing private evidence or one-use role overrides.
 - Shared cinematic station HUD, private player instruments, and a game-master
   facilitator console.
 - Live synchronization through server-sent events.
 - Session codes, private role tokens, reconnect support, and persisted sessions.
 - Timers, pause/resume, time extensions, safety pause, facilitator prompts, and
   an event record.
-- A two-round three-lane finale with named responsibility assignments, parallel
-  rescue/survival stakes, seven outcome records, facilitator preview, and confirmation.
-- Deterministic propagation of held defaults, powered circuits, preserved
-  signals, physical findings, lock knowledge, trust, air pressure, safeguards,
-  and official-status pressure through all seven stages.
+- A hidden-order evacuation finale with individual physical transfers, shared
+  refuge purge, a solo surface procedure, rescue-delay calculation and confirmation.
+- Deterministic propagation of repaired systems, field-service outcomes,
+  communications quality, purge availability, cabin performance and final
+  responder delay through all seven stages.
 - Facilitator role recovery controls, temporary observer mode, card re-send,
   audited reassignment, contextual hints, and a complete decision record.
-- Required participant-care briefing, synchronized six-step debrief, facilitator
+- Participant-care support, synchronized six-step debrief, facilitator
   notes, per-player workplace first steps, contribution metrics, and JSON export.
 - Explicit chemical-air, flood, storm, cordon, respirator, and false-status
   telemetry; the Outside Run includes a rising air meter and forced cutoff.

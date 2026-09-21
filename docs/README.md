@@ -4,6 +4,7 @@ The documentation tree is organized by audience and lifecycle:
 
 | Folder | Purpose |
 |---|---|
+| `client-input/` | Source briefs, production specifications, and implementation handoffs received from the client |
 | `client-guide/` | Current client-facing Word guide and its reusable screenshots |
 | `full-system/` | Current runtime, facilitator, and playbook-coverage references |
 | `reports/` | Consolidated milestone completion reports and the source captures used to regenerate them |

@@ -27,7 +27,7 @@ retention and privacy policy used for debrief notes.
 ## Before participants arrive
 
 1. Run `npm run dev` and open `http://localhost:4173`.
-2. Create a shift for 2, 4, 5, 6, or 7 players.
+2. Create a shift for 4, 5, 6, or 7 players.
 3. Open the shared display on the room screen.
 4. Send the crew link privately to participants.
 5. Confirm that every participant can see only their own role instrument.
@@ -49,11 +49,10 @@ scenario includes emergency pressure, a missing person, confinement, and implied
 danger. Anyone may privately ask to step out, reduce intensity, or observe; do
 not require an explanation and do not announce the request to the group.
 
-Only select **Confirm brief delivered** after reading it. The runtime will not
-start the shift until every terminal is connected and the briefing is confirmed.
-The Safety Pause control freezes the clock and adds a visible pause state at any
-point. Clear it only when the participant is ready or has moved into observer
-mode.
+The assembly screen no longer requires a confirmation action. The shift becomes
+available as soon as every configured terminal is connected. The Safety Pause
+control freezes the clock and adds a visible pause state at any point. Clear it
+only when the participant is ready or has moved into observer mode.
 
 ## Opening script
 
@@ -68,50 +67,114 @@ game and that weak choices fail forward rather than ending play early.
 
 ## Run of play
 
-### Stage 1 — Challenge the handover, 4 minutes
+### Stage 1 — Account for the outgoing shift, 6 minutes
 
-The crew places exactly three audit holds. Listen for whether participants
-distinguish observed facts from inferred status labels. If stuck, use the
-contextual prompt rather than explaining which holds are correct.
+Ask the crew to decide whether there is enough evidence that each of six named
+staff members departed Blackout Ridge. The evidence is distributed across their
+private terminals, so participants must explain and reconcile their records.
+Enter the crew's collective YES/NO answer for every person in the facilitator
+console. You receive no privileged evidence and should not reveal whether an
+answer is correct. Submission or timeout closes the handover without a score or
+later mechanical penalty; the lightning strike then starts the emergency.
+Noor is the deliberate false alarm: the rover and loading-point records do not
+prove departure until the Calder Vale shuttle readback is combined with them.
 
-### Stage 2 — Keep the station alive, 5 minutes
+### Stage 2 — Repair what the station needs, 3 + 5 minutes
 
-The crew powers three optional circuits. Ask what later capability each circuit
-protects. Avoid framing this as a points optimization problem: the trade-off is
-evidence, air, trust, or control.
+Give the crew approximately three minutes to inspect all amber FAULT panels and
+the Systems Manual. They choose one different repair for every player; enter
+their assignments without recommending systems. Locking the assignments opens
+a five-minute simultaneous repair window on private terminals. Each player gets
+one system-related reasoning game, one submission and no retry. Successful
+repairs turn WORKING immediately while external messages continue to arrive.
+Do not identify consequential systems or interpret failure as a score.
+The panel order deliberately interleaves consequential, alternative and
+surviving systems. Do not regroup them. The pre-strike Traffic Log archive is
+available above the live incident traffic, and the shared station can play each
+voiced transmission when audio is enabled.
 
-### Stage 3 — Decide what to trust, 6 minutes
+### Stage 3 — Build the outside plan, 7 minutes
 
-The crew allocates exactly three reconstruction slots. The visible signal
-transmission reflects what was preserved earlier and becomes more or less
-legible as decisions compound.
+Four external capabilities are red OFFLINE while the station heartbeat still
+claims OPERATIONAL / NO ACTIVE DISTRESS. All four field locations contain a
+real fault, but only two restore communications. Ask each participant to share
+their link in FUNCTION → COMPONENT → LOCATION; do not interpret their clues.
+Enter the agreed inbound location, human-outbound location, first target and
+exactly two equipment items. The live forecast checks route, service time,
+exposure and equipment only—it never confirms a diagnosis. A valid plan locks
+without a score and the runner deploys at fixed T+0.
 
-### Stage 4 — Test Lower Route, 6 minutes
+### Stage 4 — Execute the outside run, 8 minutes
 
-The lead names a runner, destination, and explicit abort rule. Once committed,
-only the runner may make the three field moves. The crew has three short
-guidance bursts. The portable meter rises with outside movement and forces
-withdrawal at 18 ppm. Observe whether the crew treats the partial respirator as
-a boundary or as permission to take more risk.
+Assign one player as runner; do not reopen the two destinations, their order or
+equipment from Act 3. At each site, the runner sees and describes the physical
+installation while the other players see the station procedure table. A
+station player chooses one complete instruction, then the runner commits one
+physical action. There is no retry. The result applies immediately and the
+runner travels automatically to the second locked site. Local field radio is
+clear and independent of external communications; do not manufacture radio or
+gas-management difficulty. After service two, read the dashboard outcome
+without calling either destination right or wrong.
+At each service, read the locked arrival, completion and concentration strip as
+the present field condition. It must match Act 3 and is not a new decision.
 
-### Stage 5 — Open the buried station, 7 minutes
+### Stage 5 — Keep the cabin breathable, 4 minutes
 
-The crew chooses a hatch procedure, respirator use, and watcher. Keep the two
-stakes visible: verifying Mara is not the same as preserving crew survival.
+State the simple objective: keep the single occupied cabin breathable for as
+long as possible. Players may discuss freely, but only the named active player
+may make one control change before authority passes automatically. Ask them to
+say which pressure a move improves and which it worsens. Do not supply an
+optimal sequence.
 
-### Stage 6 — Build the truth, 6 minutes plus possible retry
+Sealing intake slows toxin but raises CO₂; recirculation filters toxin but
+loads the selected bank; exhaust reduces CO₂ while drawing plume inward.
+There is no permanent safe configuration. If Air Quality is working, exact
+numbers appear; otherwise the same game uses qualitative warnings. If Upper
+Ridge was restored, two purge charges are available and work best with sealed
+intake plus recirculation. The act ends automatically at four minutes.
 
-The correction must state the invalid status, human and location, current
-hazard, evidence, and requested action. A poor first correction opens one
-shorter retry and increases pressure. Do not compose the message for the crew.
+The result grants a 180–360 second Act 6 investigation window. Then let the
+automatic reveal play without adding a puzzle: the integrity sweep finds the
+unlisted sealed R-12 volume, the old plan identifies it, and its observation
+feed confirms Mara alive inside. Access remains locked.
 
-### Stage 7 — Survive the correction, 9 minutes
+### Stage 6 — The Lark Shift, 3–6 minutes earned in Stage 5
 
-The crew completes two rounds across Lock, Signal, and People. Every lane needs
-an available role owner; full crews need three distinct owners and duo crews
-need both participants represented. The runtime previews the ending privately
-to the facilitator. Confirm the record only after checking that no technical
-mis-entry occurred.
+This is a timed investigation, not a submission puzzle. During the first half,
+ask players to search the short Lark Shift records and reconstruct the human
+sequence: six rational people entered a real refuge, deliberately isolated it,
+and died only after the false station picture delayed extraction. Leave the
+initiating cause unresolved and do not frame the crew as foolish.
+
+At the midpoint, the R-12 technical archive unlocks automatically. Ensure every
+player—not only the technical roles—can explain transfer contamination, finite
+protected air, conditional purge availability and the retained release console.
+Finish by having the whole group repeat DISTRESS → EXTRACTION MESSAGE → RELEASE
+CONFIGURATION. Those tasks are learned here and executed only in Stage 7. The
+window closes automatically. If Air Quality is broken, players see qualitative
+urgency rather than an exact countdown; do not reveal the missing number.
+
+### Stage 7 — Get Below, approximately 8–10 minutes at seven players
+
+Let the short Mara contact land: she expected the crew to bring her up, but
+R-12 is now safer than the contaminated cabin. The hidden server order activates
+one player at a time. Never reveal positions or optimise the sequence. A player
+who times out still gets below; the shared refuge air simply worsens.
+
+Players already below are deliberately isolated. They cannot use crew chat and
+may independently trigger one of three shared R-12 purge cycles if Upper Ridge
+was restored. Do not announce a purge-recovery timer; the remembered rule is
+that waiting about 60 seconds restores full effectiveness.
+
+The last player receives the 30-second surface dashboard alone, then performs
+the same transfer. After submission, classify their extraction message only by
+content: EFFECTIVE includes R-12 occupancy, unsafe surface and external recovery;
+PARTIAL provides useful emergency information but misses one essential element;
+INEFFECTIVE is blank or unusable. Ignore grammar, spelling and style.
+
+After seal, the console reveals effective status, extraction quality, responder
+release, final R-12 air, survival time and rescue time. Review the calculated
+ending preview for technical entry errors, then confirm it to open the debrief.
 
 ## Recovery controls
 
@@ -130,9 +193,11 @@ mis-entry occurred.
 ## Ending interpretation
 
 Always discuss the rescue and survival dimensions separately. The possible
-records are Clean Rescue, Costly Rescue, Last Broadcast, Joined Below, Flee
-Ridge, Filed Safe, and Station Loss. An ending is a consequence of the crew’s
-information handling and safeguards, not a diagnosis of participant ability.
+records are Clean Rescue, Close / Severe Rescue, Rescue With Casualties, and
+Lark Shift Echo. The result comes from the margin between R-12 survival time
+and responder arrival time. It is a consequence of transfer exposure, purge
+use, external propagation, message quality and release configuration—not a
+diagnosis of participant ability.
 
 ## Six-step debrief, 20–25 minutes
 

@@ -7,6 +7,16 @@ on the title screen, compact runtime HUD, assembly screens, and legacy top bars.
 Its frozen silver, cold black-blue, mountain texture, transmitter glow, and
 emergency-red waveform define the interface palette.
 
+`ui/game-header-art-v4.webp` is the reusable header border generated with
+the built-in image tool using the Act 1 console chassis as a style reference.
+Its two widely spaced transparent, sculpted metal rails frame the live content
+with cyan seams, tapered side caps and restrained emergency lights. The frame
+is artwork, not a CSS border, and is prepared at the runtime header's wide
+aspect ratio to avoid compressed or oversized details.
+It contains no lettering or logo: the existing `logo2.webp` and live
+labels remain separate, readable interface elements. The same backdrop is
+used by the entry, lobby, operational HUD, Act 1 and Act 2 header surfaces.
+
 ## Environment set 01
 
 Generated with the built-in image-generation tool for direct use by the game
@@ -25,7 +35,7 @@ over these environment plates.
 | `icon-shift-timer.webp` | Rugged mission timer, lightning strike, and radio mast | Shift duration and station boot control |
 | `control-host-authority.webp` | Master key and guarded relay switch | Host authority selection and session arming |
 | `control-crew-channel.webp` | Field radio in a secure terminal cradle | Join controls and private-channel connection |
-| `control-duo-terminals.webp` | Two linked operator stations | Two-player configuration |
+| `control-duo-terminals.webp` | Two linked operator stations | Combined-role terminal concept |
 | `control-six-terminals.webp` | Six consoles around a beacon | Six-player configuration |
 | `control-seven-terminals.webp` | Seven consoles around a beacon | Seven-player configuration and lobby status |
 | `control-code-auth.webp` | Six-key signal lock | Relay-code authentication |
@@ -48,7 +58,7 @@ over these environment plates.
 | `station-exterior.webp` | Remote weather-beaten relay station on an exposed ridge at night; violent storm, mast beacon, access road, distant Calder Vale incident; wide grounded industrial realism | Opening cinematic, lobby, storm escalation |
 | `relay-control-room.webp` | Cramped relay control room mixing aging analog equipment and modest modern monitors; rain windows, empty chair, mug, coat; calm but subtly wrong | Handover, Live Circuit, shared console |
 | `outside-run.webp` | First-person flooded service-road inspection; flashlight, unopened repeater, conduit turning beneath station; physical clues readable without labels | Outside Run decision and evidence |
-| `containment-hatch.webp` | Newly uncovered steel containment hatch below rack B; separate override, wet cables, pressure hardware, amber/cyan light | Hatch decision and lock-control finale |
+| `containment-hatch.webp` | Steel containment access below rack B; separate override, wet cables, pressure hardware, amber/cyan light | R-12 investigation and lock-control finale |
 | `auxiliary-relay-hold.webp` | Forgotten lower workplace with relay desks, bunks, mugs, masks, scripts, shallow water and calm green indicators | Buried workplace reveal and Lark evidence |
 | `mara-venn-below.webp` | Competent exhausted engineer alive below, using wired radio beside respirator and sealed pressure door; intimate human realism | Mara signal, rescue stake, finale |
 | `calder-vale-cordon.webp` | Emergency/hazmat cordon at the valley materials site in heavy rain, with ridge mast above; controlled urgency, responders not villains | Military traffic and External Trust |
@@ -65,3 +75,65 @@ over these environment plates.
 
 Original generated files are retained by the built-in image tool. These project
 copies are the versions consumed by the prototype.
+
+## Act 1 cinematic set
+
+Generated with the built-in image-generation tool on 10 September 2026. These
+frames deliberately show a functional station before the emergency and exclude
+Mara, Lower Route, Lark Shift, R-12, chemical hazards, damage, and anomalous
+imagery.
+
+| File | Final prompt summary | Intended timing |
+|---|---|---|
+| `act1/act1-approach-v1.webp` | Photorealistic 16:9 utility-vehicle approach along a wet ridge road; operating mast ahead, distant lightning, routine isolation | Opening approach, approximately 0–12 seconds |
+| `act1/act1-station-exterior-v1.webp` | Photorealistic 16:9 close exterior of the operational cabin, mast, generator and parking in light rain | Station establishment, approximately 12–23 seconds |
+| `act1/act1-control-room-v1.webp` | Photorealistic 16:9 recently occupied control room with intact equipment, green displays, rain windows and no emergency clues | Interior handover lead-in, approximately 23–35 seconds |
+
+Shared prompt constraints: cinematic grounded game environment; cool rainy night,
+restrained warm practical light, believable infrastructure, safe central crop,
+no baked-in UI text, logo, watermark, emergency damage, overt horror, or future
+story revelations.
+
+## Act 1 raster UI direction
+
+Generated with the built-in image-generation tool using the client-provided
+operational-dashboard image as a style and composition reference. Runtime
+artwork contains no authoritative gameplay copy.
+
+| File | Final prompt summary | Intended use |
+|---|---|---|
+| `act1/act1-console-chassis-v1.webp` | Empty physical relay-console chassis with a large glass workspace and twelve illuminated status housings | Live image-led Act 1 facilitator and player console surface |
+| `act1/act1-local-site-map-v1.webp` | Cinematic illustrated relief map of the Ridge site, connected roads and Calder Vale | Live player CURRENT LOCAL MAP evidence artwork |
+
+Integration rule: retain the illustrated hardware, material, lighting and panel
+language; populate dynamic names, records, captions, timer values and system
+states from the game engine so generated lettering never becomes authoritative.
+The live interface displays `logo2.webp` directly, rather than generated logo
+lettering, so the official mark remains exact at every viewport size.
+
+### Client-supplied Act 1 UI panels
+
+The seven files under `act1/client-ui/` are WebP reference copies of the
+canonical private-screen graphics embedded in the client handoff document.
+They are retained for visual comparison but are not rendered inside player
+screens because their baked-in alternative logo and timer would duplicate the
+official live interface. Their icon, color and typography direction is carried
+by the generated icon set and live semantic records. The generated local-site
+map remains in use for the map terminal at the user's request.
+
+## Act 1 generated icon instruments
+
+The sixteen transparent WebP assets under `act1/icons/` were generated as one
+consistent 4×4 industrial icon atlas and mechanically separated without visual
+redesign. They cover the seven evidence categories, handover roster, four
+player workflow actions, facilitator console, and three live review states.
+They are the visible icon layer for record tabs, headers, staff status modules,
+task modules and the facilitator completion control. Semantic HTML remains
+underneath for input, keyboard access, live synchronization and screen readers.
+
+## Ending control icons
+
+The four transparent assets under `ending/icons/` were generated as a single
+consistent physical-control strip and separated into final-record, restart,
+preserve-record and return-to-Act-1 controls. They appear in both the first
+Stage 7 result overlay and the finalized-session replay modal.

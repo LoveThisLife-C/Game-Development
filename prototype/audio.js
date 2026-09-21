@@ -4,6 +4,9 @@ class StationAudio {
     this.context = null;
     this.master = null;
     this.nodes = [];
+    this.recording = null;
+    this.transmissionQueue = [];
+    this.playedTransmissions = new Set();
   }
 
   async toggle() {
@@ -43,7 +46,45 @@ class StationAudio {
     const nodes = this.nodes;
     window.setTimeout(() => nodes.forEach(node => { try { node.stop(); } catch {} }), 420);
     this.nodes = []; this.enabled = false; this.master = null;
+    if (this.recording) { this.recording.pause(); this.recording = null; }
+    this.transmissionQueue = [];
     return false;
+  }
+
+  playTransmission(key, source) {
+    if (!this.enabled || !source || this.playedTransmissions.has(key)) return;
+    this.playedTransmissions.add(key);
+    this.transmissionQueue.push({key,source});
+    this.playNextTransmission();
+  }
+
+  playNextTransmission() {
+    if (!this.enabled || this.recording || !this.transmissionQueue.length) return;
+    const {key,source} = this.transmissionQueue.shift();
+    const recording = new Audio(source);
+    recording.volume = 0.52;
+    recording.addEventListener("ended", () => {
+      if (this.recording === recording) this.recording = null;
+      this.playNextTransmission();
+    }, { once: true });
+    recording.play().catch(() => {
+      this.playedTransmissions.delete(key);
+      if (this.recording === recording) this.recording = null;
+      this.playNextTransmission();
+    });
+    this.recording = recording;
+  }
+
+  sync(state, view) {
+    if (!this.enabled || !state || (view !== "shared" && state.stage !== 1)) return;
+    if (state.stage === 2) {
+      for (const item of state.repairRun?.traffic||[]) {
+        if (item.audio) this.playTransmission(`${state.code}:2:${item.ref}`, item.audio);
+      }
+      return;
+    }
+    const signal = state.signalTransmission;
+    if (signal?.audio) this.playTransmission(`${state.code}:${state.stage}:${signal.id || signal.source}`, signal.audio);
   }
 
   cue(type = "confirm") {

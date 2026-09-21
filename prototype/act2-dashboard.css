@@ -1,0 +1,107 @@
+/* Single coordinate space for the artwork and ALL dynamic slots.
+   Unique classes isolate the board from historic .act2-instrument grid rules. */
+.station-dashboard {
+  position: relative;
+  isolation: isolate;
+  container-type: inline-size;
+  width: 100%;
+  aspect-ratio: 1672 / 941;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  color: #e6f1f4;
+  font-family: "Blackout Display", "Arial Narrow", sans-serif;
+  text-shadow: 0 1px 2px #000;
+}
+.station-dashboard .sdb-art {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: fill;
+}
+.station-dashboard .sdb-slot {
+  position: absolute;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  font: 400 1.05cqw/1.1 "Blackout Display", "Arial Narrow", sans-serif;
+  letter-spacing: .005em;
+}
+.station-dashboard .sdb-text { display: flex; align-items: center; justify-content: center; text-align: center; }
+.station-dashboard .sdb-fault { color: #ffc62e; font-size: 1cqw; }
+.station-dashboard .sdb-good { color: #63efc4; }
+.station-dashboard .sdb-official { display: flex; align-items: center; gap: .65cqw; white-space: nowrap; font-size: 1.25cqw; }
+.station-dashboard .sdb-official strong { color: #63efc4; font: inherit; }
+.station-dashboard .sdb-players { font-size: 1.5cqw; }
+.station-dashboard .sdb-clock { display: flex; align-items: center; justify-content: flex-start; gap: .8cqw; font-size: 1.35cqw; }
+.station-dashboard .sdb-clock strong { color: #edf4f6; font: inherit; }
+.station-dashboard .sdb-personnel { font-size: 1.18cqw; }
+.station-dashboard .sdb-alert { color: #ff4c59; }
+.station-dashboard .sdb-progress { font-size: 1.1cqw; }
+.station-dashboard .sdb-lamp {
+  border: .1cqw solid #b9ecf1;
+  border-radius: 50%;
+  overflow: visible;
+  background: radial-gradient(circle at 40% 35%,#fff 0 10%,#ffd76a 25%,#ffb000 50%,#4b2600 75%);
+  box-shadow: 0 0 .33cqw #ffa91c, 0 0 .65cqw #ffa91c66;
+}
+.station-dashboard .sdb-lamp.working { background: radial-gradient(circle at 40% 35%,#fff 0 10%,#8affba 25%,#35e967 50%,#00491a 75%); box-shadow: 0 0 .33cqw #42f46e,0 0 .65cqw #42f46e66; }
+.station-dashboard .sdb-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.station-dashboard .sdb-camera span,.station-dashboard .sdb-camera b { position: absolute; left: 1.5%; font: 400 1.1cqw/1 "Blackout Display",sans-serif; }
+.station-dashboard .sdb-camera span { top: 2%; }
+.station-dashboard .sdb-camera b { bottom: 2%; }
+.station-dashboard .sdb-log-cell { justify-content: flex-start; text-align: left; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.435cqw; font-size: .94cqw; }
+.station-dashboard .sdb-log-time { color: #edc870; }
+.station-dashboard .sdb-log-unavailable { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25cqw; border: .1cqw solid #dda818; border-radius: .3cqw; background: #001014f2; text-align: center; }
+.station-dashboard .sdb-log-unavailable b { color: #ffca39; font: 400 1.5cqw/1 "Blackout Display",sans-serif; }
+.station-dashboard .sdb-log-unavailable span { font: 400 1.05cqw/1.1 "Blackout Display",sans-serif; }
+.station-dashboard .sdb-reading { background: #001014; font-size: 1.05cqw; }
+.station-dashboard .sdb-wave { display: flex; align-items: center; gap: .11cqw; }
+.station-dashboard .sdb-wave i { flex: 1; background: #73d8e9; }
+.station-dashboard .sdb-inbound-source { justify-content: flex-start; text-align: left; white-space: nowrap; font-size: .96cqw; }
+.station-dashboard .sdb-transmission { display: block; text-align: left; white-space: normal; font-size: .94cqw; line-height: 1.05cqw; overflow-wrap: anywhere; }
+.station-dashboard .sdb-source { display: block; white-space: nowrap; text-overflow: ellipsis; font-size: 1.02cqw; line-height: 1.794cqw; }
+.station-dashboard .sdb-idle { font-size: 1.2cqw; }
+.station-dashboard .sdb-beacon { font-size: 1.03cqw; }
+.station-dashboard .sdb-diagnostic { justify-content: flex-start; text-align: left; font-size: 1cqw; }
+.station-dashboard .sdb-water { font-size: 1.25cqw; }
+.station-dashboard .sdb-vent { font-size: 1.16cqw; }
+.station-dashboard .sdb-reader { justify-content: flex-start; text-align: left; font-size: 1cqw; line-height: 1; }
+.station-dashboard .sdb-footnote { font-size: 1.05cqw; }
+
+/* Controls sit outside the artwork, including in short landscape viewports. */
+.station-status-dialog { position: fixed; inset: 0; z-index: 300; padding: 10px; display: grid; grid-template-rows: 46px minmax(0,1fr); gap: 8px; background: #00090df5; overflow: hidden; }
+.station-status-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #9bd9df; font: 400 15px/1 "Blackout Display",sans-serif; letter-spacing: .05em; }
+.station-status-toolbar button { position:relative;min-width:176px;height:44px;padding:4px 5px;display:grid;grid-template-columns:36px 1fr;align-items:center;gap:9px;border:0;color:#f5eeee;background:transparent;box-shadow:none;font:inherit;text-align:left;cursor:pointer;transition:transform .16s ease,filter .16s ease,text-shadow .16s ease; }
+.station-status-toolbar button:before{display:none}
+.station-status-toolbar button>i{position:relative;width:34px;height:34px;display:grid;place-items:center;border:1px solid rgba(244,101,94,.7);border-radius:50%;background:radial-gradient(circle,rgba(205,48,41,.32),rgba(28,6,7,.8));box-shadow:0 0 11px rgba(232,64,57,.2)}
+.station-status-toolbar button>i:before,.station-status-toolbar button>i:after{position:absolute;width:15px;height:2px;content:"";background:#ff827b;box-shadow:0 0 6px rgba(255,82,73,.65)}
+.station-status-toolbar button>i:before{transform:rotate(45deg)}.station-status-toolbar button>i:after{transform:rotate(-45deg)}
+.station-status-toolbar button>span,.station-status-toolbar button>span small{display:block}.station-status-toolbar button>span{font-size:11px;font-weight:800;letter-spacing:.09em}.station-status-toolbar button>span small{margin-top:4px;color:#d58c88;font:700 6px/1 "Blackout Mono",monospace;letter-spacing:.11em}
+.station-status-toolbar button:hover{transform:translateY(-1px);filter:brightness(1.25);box-shadow:none;text-shadow:0 0 9px rgba(231,62,55,.38)}
+.station-status-toolbar button:focus-visible { outline: 2px solid #ff7770; outline-offset: 2px; }
+.station-status-toolbar small { font: inherit; color: #86a6ac; }
+.station-status-viewport { min-width: 0; min-height: 0; overflow: auto; display: grid; align-items: center; justify-items: center; }
+.station-status-live { width: min(100%,calc((100dvh - 74px)*1672/941)); aspect-ratio: 1672/941; }
+.station-status-viewport:focus-visible { outline: 1px solid #43858e; outline-offset: -1px; }
+.act2-runtime.shared .act2-shell { width: min(calc(100vw - 12px),calc((100dvh - 12px)*1672/941)); min-height: 0; height: auto; margin: 6px auto; }
+.act2-runtime.shared .act2-shell>main { min-height: 0; padding: 0; }
+body:has(.station-status-dialog) { overflow: hidden; }
+body:has(.station-status-dialog) .crew-chat-root { visibility: hidden; }
+@media(max-width:760px) {
+  .station-status-dialog { padding: 6px; gap: 6px; }
+  .station-status-toolbar { font-size: 13px; }
+  .station-status-toolbar small { font-size: 11px; }
+  .station-status-toolbar>span small{display:none}.station-status-toolbar button{min-width:48px;width:48px;padding:5px 7px;grid-template-columns:1fr}.station-status-toolbar button>span{display:none}.station-status-toolbar button>i{width:34px;height:34px}
+  .station-status-viewport { display: block; }
+  /* Keep the engraved text legible; pan the complete artwork and values together. */
+  .station-status-live { width: 1200px; max-width: none; }
+  .act2-runtime.shared .act2-shell { width: 1200px; max-width: none; }
+}

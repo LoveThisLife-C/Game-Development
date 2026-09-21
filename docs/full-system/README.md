@@ -22,54 +22,64 @@ another role’s private evidence.
 
 ## Crew configurations
 
-The runtime supports the playbook's four-, five-, six-, and seven-player
-configurations, plus the requested two-player variant. Responsibilities combine
-without removing any evidence lens:
+The runtime supports the production specification's four-, five-, six-, and
+seven-player configurations. Responsibilities combine without removing any
+evidence lens:
 
-- **2 players:** Command & Field; Signal & Systems.
 - **4 players:** Command & Protocol; Signal; Systems; Operations & Field.
 - **5 players:** Lead; Signal; Systems; Operations; Field & Protocol.
 - **6 players:** the six core roles.
 - **7 players:** the core roles plus Comms.
 
-Both operators receive different multi-source briefs and must exchange what
-they know. All seven stages use the same decisions and consequences as full-crew
-play. During the finale, both operators must own at least one of the three lanes;
-one operator necessarily carries a second lane.
-
-Duo validation captures: [role selection](screenshots/duo-join.webp),
-[Command & Field terminal](screenshots/duo-command.webp), and
-[Signal & Systems terminal](screenshots/duo-technical.webp).
-
 ## Seven-stage runtime
 
-1. Challenge the handover defaults with three human audit holds.
-2. Allocate backup power to exactly three optional circuits.
-3. Spend limited signal-processing capacity across competing sources.
-4. Send a named runner on a bounded physical check with an abort rule.
-5. Choose a containment-hatch procedure and assign scarce protection.
-6. Build an evidence-backed correction for Cordon Control.
-7. Execute two rounds across Lock, Signal, and People, each with a named lead.
+1. Reconcile whether six outgoing staff members actually departed, using
+   different records distributed across the crew's private terminals.
+2. Choose and assign one failed system per player, then run distinct private
+   repair games simultaneously while outside traffic continues.
+3. Diagnose two field locations and lock route order plus two specialist items.
+4. Execute both locked field services through asymmetric runner/station games.
+5. Keep the cabin breathable through a four-minute rotating control game; the
+   sustained result determines investigation time before R-12 reveals Mara.
+6. Investigate the Lark Shift archive, then teach every player the R-12 rules
+   and three-part final surface procedure.
+7. Descend into R-12 in a hidden random order, manage shared refuge air, and
+   have the final surface operator complete the learned rescue procedure alone.
 
-Every stage changes persistent station state. Weak choices do not stop the game;
-they change pressure, available evidence, trust, air safety, and the possible
-ending.
+Act 1 establishes shared understanding without scoring or later mechanical
+state. From Act 2 onward, weak choices do not stop the game; they change station
+capability, available evidence, trust, air safety, and the possible ending.
 
-The Outside Run is an active three-move sequence. The lead first locks a runner,
-destination, and explicit abort rule. The runner then chooses to observe,
-advance with exposure, or withdraw, while the rest of the crew can send only
-three short guidance bursts. Findings and filter condition carry into the hatch.
+The Outside Run executes the two-location Act 3 plan without reopening route or
+equipment. The runner sees and describes each installation; station players
+interpret a separate procedure table and lock one instruction; the runner then
+commits one action with no retry. A, B, C and D restore different operational
+capabilities, and Act 2 still determines communications quality.
 
-A rejected first Stage 6 correction opens one shortened retry and worsens the
-station state. Stage 7 resolves two separately committed action rounds, produces
-a deterministic ending preview, and waits for the facilitator to confirm the
-final record before exposing the debrief.
+Act 5 gives every player the same compact cabin controls but enables only the
+active role. Intake, airflow and filter state create visible tradeoffs under a
+continuously rising plume. Working Air Quality exposes exact values; otherwise
+players receive qualitative warnings. Restored Upper Ridge service enables two
+finite purge charges. The sustained result grants 180–360 seconds for Act 6,
+then an automatic integrity sweep reveals R-12 and Mara alive for every team.
+
+Stage 6 uses that exact earned window. Its first half is a searchable historical
+archive and its second half unlocks the R-12 operating archive. If Air Quality
+is broken, only deadline precision is lost. Archive activity is not scored or
+stored, and all terminals receive the same mandatory procedure: DISTRESS →
+EXTRACTION MESSAGE → RELEASE CONFIGURATION. Stage 7 activates one short
+physical transfer at a time. Players already below are isolated and may spend
+shared purge cycles independently. The last hidden player receives a 30-second
+surface dashboard before their own transfer. Final refuge endurance is compared
+with the rescue delay created by effective status, message and release outcomes;
+the facilitator confirms that calculated record before debrief.
 
 Chemical air, lower-road flooding, storm damage, cordon trust, respirator state,
-and the official-status race remain visible as incident telemetry. The Outside
-Run carries a live air-meter reading and automatically withdraws the runner at
-the hard 18 ppm limit. Private role instruments can archive their current brief
-as a text file for remote or accessibility workflows.
+and the official-status race remain visible as incident telemetry. During the
+Outside Run, the current site repeats the exact Act 3 arrival, service-completion
+and concentration forecast as environmental reality; it creates no new gas
+decision or withdrawal rule. Private role instruments can archive their current
+brief as a text file for remote or accessibility workflows.
 
 ## Runtime architecture
 
@@ -77,14 +87,14 @@ as a text file for remote or accessibility workflows.
 - `server/game-engine.js` — authorization, timer logic, consequences, endings.
 - `server/game-content.js` — roles, stages, evidence, and decision options.
 - `prototype/full-app.js` — the four browser modes and interaction routing.
-- `prototype/audio.js` — opt-in procedural ambience and feedback cues.
+- `prototype/audio.js` — opt-in ambience, feedback cues, and queued voiced transmissions.
 - `prototype/network.js` — REST actions, state loading, and reconnecting events.
 - `prototype/styles.css` — cinematic full-viewport game presentation.
 
 ## Session operation
 
 1. Run `npm run dev` and open `http://localhost:4173`.
-2. Engage the station, choose Command Authority, and arm a two- or four-to-seven-terminal shift.
+2. Engage the station, choose Command Authority, and arm a four-to-seven-terminal shift.
 3. In the assembly screen, copy the crew link and open the shared display.
 4. Players claim roles. Read the participant-care statement and confirm it in
    the facilitator console; the shift cannot start until this is done.
@@ -93,9 +103,10 @@ as a text file for remote or accessibility workflows.
    reports; other role terminals see readiness, not the private report text.
    Crew Chat is available as a typed discussion channel for remote sessions or
    accessibility needs.
-6. The Station Lead or facilitator commits each decision.
-7. During Stage 4, the named runner completes three field moves while the crew
-   uses its three guidance bursts.
+6. The facilitator records Stages 1–3 collective decisions; from Stage 4 onward,
+   the Station Lead or facilitator can commit the agreed plan.
+7. During Stage 4, the runner and station crew complete two sequential
+   observation → interpretation → instruction → action service games.
 8. Everyone reads the synchronized cause-and-effect reveal: the exact
    commitment, what changed, updated tracks, and why the next stage happens.
 9. The facilitator advances after each consequence reveal and confirms the
@@ -114,7 +125,9 @@ you know → Confidence → Why it matters → What to say out loud → Your
 recommendation**.
 
 The audio control is deliberately opt-in because browsers block autoplay and
-workshop participants may need reduced stimulation.
+workshop participants may need reduced stimulation. The shared station queues
+the voiced Act 1–3 transmissions while always retaining the same transcript on
+screen.
 
 ## Validation
 

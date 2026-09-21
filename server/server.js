@@ -18,8 +18,6 @@ function restore() {
   try {
     const records = JSON.parse(fs.readFileSync(dataFile, "utf8"));
     for (const item of records) {
-      item.finaleRound ||= 1;
-      item.finalePlans ||= [];
       sessions.set(item.code, item);
     }
   } catch (error) {
@@ -78,7 +76,7 @@ function broadcast(session) {
 }
 
 function contentType(file) {
-  return ({ ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".css":"text/css; charset=utf-8", ".webp":"image/webp", ".svg":"image/svg+xml", ".json":"application/json; charset=utf-8", ".mp4":"video/mp4", ".ico":"image/x-icon" })[path.extname(file)] || "application/octet-stream";
+  return ({ ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".css":"text/css; charset=utf-8", ".webp":"image/webp", ".svg":"image/svg+xml", ".json":"application/json; charset=utf-8", ".mp4":"video/mp4", ".wav":"audio/wav", ".ico":"image/x-icon" })[path.extname(file)] || "application/octet-stream";
 }
 
 function serveStatic(url, res) {
