@@ -17,7 +17,10 @@ WEBP_REFERENCE = re.compile(r"[A-Za-z0-9_./-]+\.webp")
 
 def project_files():
     for path in ROOT.rglob("*"):
-        if ".git" in path.parts or not path.is_file():
+        relative = path.relative_to(ROOT)
+        # Downloadable client/video-production packages are not browser
+        # runtime assets and may intentionally contain PNG source frames.
+        if ".git" in path.parts or "exports" in relative.parts or not path.is_file():
             continue
         yield path
 
@@ -49,7 +52,15 @@ def main() -> None:
         asset_references = text.replace(".capture.png", "")
         if re.search(r"\.(?:png|jpe?g|gif)\b", asset_references, re.I):
             stale.append(str(path.relative_to(ROOT)))
-        for reference in WEBP_REFERENCE.findall(text):
+        for match in WEBP_REFERENCE.finditer(text):
+            reference = match.group(0)
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            line_end = text.find("\n", match.end())
+            source_line = text[line_start : len(text) if line_end < 0 else line_end]
+            # Browser regression scripts create WebP screenshots. Those names
+            # are output targets, not source assets that must already exist.
+            if "writeFileSync" in source_line:
+                continue
             if Path(reference).name not in basenames:
                 missing.append(f"{path.relative_to(ROOT)} -> {reference}")
 

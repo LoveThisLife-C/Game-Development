@@ -24,12 +24,14 @@ const text = (className, rect, value) => element(`sdb-text ${className}`,rect,es
 const fault = (rect, label) => text("sdb-fault",rect,label);
 
 export function renderAct2Dashboard(state) {
-  const systems = Object.fromEntries((state.repairSystems || []).map(system => [system.id,system]));
-  const works = id => systems[id]?.state === "working";
+  const systems = Object.fromEntries((state.repairSystems || state.act3Systems || []).map(system => [system.id,system]));
+  const systemState = id => systems[id]?.state || "fault";
+  const works = id => systemState(id) === "working";
+  const offline = id => systemState(id) === "offline";
   const run = state.repairRun || {};
   const traffic = run.traffic || [];
   const latest = traffic.at(-1);
-  const phase = run.phase === "repair" ? "REPAIRS" : run.phase === "dispatch" ? "DISPATCH" : "PRIORITISATION";
+  const phase = state.stage === 3 ? "FIELD PLANNING" : run.phase === "repair" ? "REPAIRS" : run.phase === "dispatch" ? "DISPATCH" : "PRIORITISATION";
   const seconds = state.clock.running && state.clock.endAt ? Math.max(0,Math.ceil((state.clock.endAt-Date.now())/1000)) : state.clock.remaining;
   const clock = `${String(Math.floor(seconds/60)).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`;
   const assignments = Object.values(run.phase === "planning" || run.phase === "dispatch" ? state.draft?.repairs || {} : run.assignments || {}).filter(Boolean).length;
@@ -41,14 +43,14 @@ export function renderAct2Dashboard(state) {
     text("sdb-players",[1080,25,151,36],`${Object.keys(state.players || {}).length} PLAYERS`),
     element("sdb-clock",[1255,25,366,36],`<span>${phase}</span><strong data-clock>${clock}</strong>`),
     text(`sdb-personnel ${level ? "sdb-alert" : ""}`,[58,74,1278,24],personnel),
-    text("sdb-progress",[1368,74,255,24],`${run.phase === "repair" ? complete : assignments} / ${state.playerCount} ${run.phase === "repair" ? "REPAIRS COMPLETE" : "REPAIRS ASSIGNED"}`),
+    text("sdb-progress",[1368,74,255,24],state.stage===3?"4 EXTERNAL SYSTEMS OFFLINE":`${run.phase === "repair" ? complete : assignments} / ${state.playerCount} ${run.phase === "repair" ? "REPAIRS COMPLETE" : "REPAIRS ASSIGNED"}`),
   ];
   for (const [id,{lamp:[x,y]}] of Object.entries(DASHBOARD_PANELS)) {
-    const working = works(id);
-    parts.push(element(`sdb-lamp ${working ? "working" : "fault"}`,[x-10,y-10,20,20],"",`role="img" data-system="${id}" data-state="${working ? "working" : "fault"}" aria-label="${escape(systems[id]?.name || id)}: ${working ? "operational" : "local fault"}"`));
+    const status=systemState(id);
+    parts.push(element(`sdb-lamp ${status}`,[x-10,y-10,20,20],"",`role="img" data-system="${id}" data-state="${status}" aria-label="${escape(systems[id]?.name || id)}: ${status === "working" ? "operational" : status === "offline" ? "offline" : "local fault"}"`));
   }
 
-  parts.push(element("sdb-camera",[50,163,595,271],`<img src="./assets/images/act2/act2-lower-road-camera-feed-v1.webp" alt="Lower Road camera in heavy rain"><span>CAM 01 · LOWER ROAD</span><b>LIVE</b>`));
+  parts.push(element(`sdb-camera ${offline("lower_road_camera")?"sdb-camera-offline":""}`,[50,163,595,271],offline("lower_road_camera")?`<strong>OFFLINE</strong><span>CAM 01 · LOWER ROAD</span>`:`<img src="./assets/images/act2/act2-lower-road-camera-feed-v1.webp" alt="Lower Road camera in heavy rain"><span>CAM 01 · LOWER ROAD</span><b>LIVE</b>`));
 
   // One line per engraved row, with exactly the same column boundaries as the art.
   const rows = traffic.filter(item => item.stored || ["direct","recovered"].includes(item.storageState)).slice(-10);
@@ -72,16 +74,16 @@ export function renderAct2Dashboard(state) {
     }
   }
 
-  if(!works("inbound_receive")) parts.push(fault([331,480,252,24],"RECEPTION DEGRADED"));
+  if(!works("inbound_receive")) parts.push(text(offline("inbound_receive")?"sdb-offline":"sdb-fault",[331,480,252,24],offline("inbound_receive")?"EXTERNAL LINK OFFLINE":"RECEPTION DEGRADED"));
   const waveform = Array.from({length:64},(_,i)=>`<i style="height:${latest?12+(i*19%72):6}%"></i>`).join("");
   parts.push(element("sdb-wave",[109,541,460,17],waveform,`aria-label="${latest ? "Incoming signal" : "Carrier idle"}"`));
-  parts.push(text("sdb-inbound-source",[124,588,450,20],latest?.capturedSource || latest?.source || "AWAITING SIGNAL"));
-  parts.push(text("sdb-transmission",[57,637,520,53],latest?.displayedTranscript || latest?.text || "Waiting for incoming transmission."));
+  parts.push(text("sdb-inbound-source",[124,588,450,20],offline("inbound_receive")?"NO EXTERNAL CARRIER":latest?.capturedSource || latest?.source || "AWAITING SIGNAL"));
+  parts.push(text("sdb-transmission",[57,637,520,53],offline("inbound_receive")?"Inbound field distribution is offline.":latest?.displayedTranscript || latest?.text || "Waiting for incoming transmission."));
 
   if(!works("source_identification")) parts.push(fault([629,509,293,23],"IDENTIFICATION FAULT"));
   parts.push(text("sdb-source",[635,565,279,30],latest?.capturedSource || latest?.source || (works("source_identification") ? "AWAITING SIGNAL" : "SOURCE UNRESOLVED")));
-  if(!works("human_outbound")) parts.push(fault([967,509,288,23],"OUTPUT DISTORTED"));
-  parts.push(text("sdb-idle",[1078,648,159,25],"IDLE"));
+  if(!works("human_outbound")) parts.push(text(offline("human_outbound")?"sdb-offline":"sdb-fault",[967,509,288,23],offline("human_outbound")?"EXTERNAL LINK OFFLINE":"OUTPUT DISTORTED"));
+  parts.push(text(offline("human_outbound")?"sdb-offline":"sdb-idle",[1078,648,159,25],offline("human_outbound")?"OFFLINE":"IDLE"));
   if(!works("status_beacon")) parts.push(fault([1301,509,325,23],"STATUS CONTROL FAULT"));
   parts.push(text("sdb-beacon",[1308,568,308,23],"OPERATIONAL / NO ACTIVE DISTRESS"));
 
@@ -93,7 +95,7 @@ export function renderAct2Dashboard(state) {
   if(!works("road_flood_monitoring")) parts.push(fault([443,750,293,27],"MONITORING FAULT / REPORTS UNAVAILABLE"));
   parts.push(text("sdb-water",[687,808,43,27],works("road_flood_monitoring")?"OK":"—"));
   parts.push(text("sdb-water",[687,861,43,27],works("road_flood_monitoring")?"OK":"—"));
-  parts.push(text("sdb-vent sdb-good",[779,851,224,35],"AIR EXCHANGE ACTIVE"));
+  parts.push(text(`sdb-vent ${offline("ventilation_control")?"sdb-offline":works("ventilation_control")?"sdb-good":"sdb-fault"}`,[779,851,224,35],offline("ventilation_control")?"EXTERNAL PATH OFFLINE":works("ventilation_control")?"AIR EXCHANGE ACTIVE":"LOCAL FAULT"));
   parts.push(text("sdb-reader sdb-good",[1169,789,122,17],"READY"));
   parts.push(text(`sdb-reader ${works("site_access_control")?"sdb-good":"sdb-fault"}`,[1169,842,122,18],works("site_access_control")?"READY":"FAULT"));
   parts.push(text("sdb-footnote",[1047,879,262,22],"Door manually operable."));

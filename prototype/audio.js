@@ -76,7 +76,7 @@ class StationAudio {
   }
 
   sync(state, view) {
-    if (!this.enabled || !state || (view !== "shared" && state.stage !== 1)) return;
+    if (!this.enabled || !state || (view !== "shared" && ![1,3].includes(state.stage))) return;
     if (state.stage === 2) {
       for (const item of state.repairRun?.traffic||[]) {
         if (item.audio) this.playTransmission(`${state.code}:2:${item.ref}`, item.audio);

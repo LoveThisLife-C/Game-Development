@@ -96,7 +96,7 @@ async function check(p,label,session){
   for(const lamp of measurements.lamps){
     const [x,y]=DASHBOARD_PANELS[lamp.id].lamp;
     assert.ok(Math.abs(lamp.x+lamp.w/2-x)<.12 && Math.abs(lamp.y+lamp.h/2-y)<.12,`${label}: ${lamp.id} lamp moved`);
-    assert.equal(lamp.state,session.global.systemStatus[lamp.id]==="working"?"working":"fault");
+    assert.equal(lamp.state,session.global.systemStatus[lamp.id],`${label}: ${lamp.id} must expose its live engine state`);
   }
   for(const slot of measurements.slots){
     assert.ok(slot.x>=0 && slot.y>=0 && slot.x+slot.w<=1672.1 && slot.y+slot.h<=941.1,`${label}: slot outside artwork ${slot.class}`);

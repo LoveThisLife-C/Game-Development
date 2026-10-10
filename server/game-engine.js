@@ -1,14 +1,21 @@
 import crypto from "node:crypto";
-import { ACTIONS, ACT1_TRANSMISSIONS, ACT2_SYSTEMS, DEBRIEF_STEPS, FIELD_EQUIPMENT, FIELD_GAMES, FINALE_BALANCE, INFORMATION_JOINS, LARK_ARCHIVE, OUTSIDE_LOCATIONS, PARTICIPANT_CARE, PLAYTEST_CRITERIA, PRE_STRIKE_ARCHIVE, READINESS_PROFILES, REPAIR_SYSTEMS, ROLES, SIGNAL_TRANSMISSIONS, STAGES, roleCard, roleIdsForCount, roleMapForCount, rolesForCount } from "./game-content.js";
+import { ACTIONS, ACT1_TRANSMISSIONS, ACT2_SYSTEMS, ACT3_LOCATIONS, ACT3_REPAIR_TOOLS, ACT3_STAGE2_COSTS, ACT3_SUPPORT_ITEMS, ACT3_VALID_DEPLOYMENTS, DEBRIEF_STEPS, FIELD_EQUIPMENT, FIELD_GAMES, FINALE_BALANCE, INFORMATION_JOINS, LARK_ARCHIVE, OUTSIDE_LOCATIONS, PARTICIPANT_CARE, PLAYTEST_CRITERIA, PRE_STRIKE_ARCHIVE, READINESS_PROFILES, REPAIR_SYSTEMS, ROLES, SIGNAL_TRANSMISSIONS, STAGES, roleCard, roleIdsForCount, roleMapForCount, rolesForCount } from "./game-content.js";
+import {ACT4_MODULES,act4Procedure,createAct4Board,verifyAct4Module} from "./act4-content.js";
 
 const codeChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ACT1_LEAD_IN_MS = 30_016;
-const ACT2_OPENING_MS = 35_000;
+const ACT2_OPENING_MS = 20_000;
+const ACT3_OPENING_MS = 35_000;
+const ACT4_OPENING_MS = 40_000;
+const ACT4_TRAVEL_MS = 8_000;
+const ACT4_RESOLVED_MS = 4_000;
+const ACT4_RETURN_MS = 5_000;
+const ACT4_MARA_REVEAL_MS = 10_000;
 const STAGE_HINTS = {
   1:"ACCOUNTED FOR = DEPARTED / A completed task or missing exception is not, by itself, evidence that someone left Blackout Ridge.",
   2:"REPAIR RULE / Assign one different failed system to every player. Each repair has one submission and no retry.",
-  3:"PLAN RULE / Trace FUNCTION → COMPONENT → LOCATION. The feasibility display checks only route, exposure and equipment—not whether your diagnosis is correct.",
-  4:"FIELD SERVICE / Runner: describe every visible condition. Station: match the complete observation to one manual row. Then send one instruction before the runner acts.",
+  3:"DEPLOYMENT RULE / Choose two locations in order, one approved repair tool for each, one support item, then add Stage 1 + Stage 2 + Stage 3 filter units.",
+  4:"FIELD SERVICE / Runner operates six apparatus modules. Cabin players interpret their private procedures aloud. All six modules must be complete before the shared repair clock expires.",
   5:"CABIN AIR / No setting stays safe. Sealing raises CO₂; recirculation loads the active filter; opening or exhausting draws in more plume.",
   6:"ARCHIVE LOOP / Search or follow a lead, inspect one short record, share the useful fact, then pursue the next question. Every player must learn DISTRESS → EXTRACTION MESSAGE → RELEASE CONFIGURATION.",
   7:"GET BELOW / The active player follows the physical sequence. Players below decide independently whether to purge. The final operator must remember all three surface tasks.",
@@ -19,7 +26,7 @@ export const createCode = () => Array.from({ length: 6 }, () => codeChars[crypto
 const initialDraft = (stage, playerCount = 7) => ({
   1: { handover: Object.fromEntries(STAGES[1].options.map(([id]) => [id, ""])) },
   2: { repairs: Object.fromEntries(activeRoleIds(playerCount).map(id => [id, ""])) },
-  3: { plannedInbound: "", plannedOutbound: "", firstTarget: "", equipment: [] },
+  3: { firstLocation:"", secondLocation:"", tool1:"", tool2:"", supportItem:"", filterUse:"", runner:"" },
   4: { runner: "operations" },
   5: {},
   6: {},
@@ -32,9 +39,9 @@ export function createSession({ code = createCode(), playerCount = 7 } = {}) {
   if(![4,5,6,7].includes(playerCount))throw new Error("Blackout Ridge requires 4–7 players");
   return {
     code, facilitatorToken: token(), revision: 0, playerCount,
-    status: "lobby", stage: 0, stageStatus: "briefing", players: {}, act1Intro: null, act2Intro: null, act1ActiveTransmission: null,
+    status: "lobby", stage: 0, stageStatus: "briefing", players: {}, act1Intro: null, act2Intro: null, act3Intro: null, act4Intro: null, act1ActiveTransmission: null,
     clock: { duration: 0, remaining: 0, running: false, endAt: null },
-    reports: {}, chatMessages: [], draft: {}, hint: null, safetyPaused: false, fieldRun: null, repairRun: null, cabinRun: null, archiveRun: null, finaleRun: null,
+    reports: {}, chatMessages: [], draft: {}, hint: null, safetyPaused: false, testMode: null, fieldRun: null, repairRun: null, act3Run: null, cabinRun: null, archiveRun: null, finaleRun: null,
     global: { upperAir: 0, trust: 0, official: 0, systems: [], systemStatus: {}, externalStatus: {}, outsidePlan: null, fieldServices: {}, respirator: "partial", evidence: [], lockKnowledge: 0, mara: "missing", correction: "none", lockRisk: false, act6InvestigationTime: null },
     resources: { airHandlingBuffer: 0, safetyGuard: 0, interlockOverride: "available" },
     flags: { assumptions: {}, signal: {}, physical: {}, human: { mara_missing: true }, system: {}, correction: {} },
@@ -51,12 +58,15 @@ function ensureSession(session) {
   session.flags ||= { assumptions: {}, signal: {}, physical: {}, human: {}, system: {}, correction: {} };
   for (const group of ["assumptions","signal","physical","human","system","correction"]) session.flags[group] ||= {};
   session.interventionFeedback ||= {}; session.absentRoles ||= {}; session.decisions ||= {}; session.chatMessages ||= [];
-  session.fieldRun ??= null; session.repairRun ??= null; session.cabinRun ??= null; session.archiveRun ??= null; session.finaleRun ??= null; session.global.systemStatus ||= {}; session.global.externalStatus ||= {}; session.global.outsidePlan ??= null; session.global.fieldServices ||= {}; session.global.act6InvestigationTime ??= null; session.pendingEnding ??= null;
+  session.testMode ??= null;
+  session.fieldRun ??= null; session.repairRun ??= null; session.act3Run ??= null; session.cabinRun ??= null; session.archiveRun ??= null; session.finaleRun ??= null; session.global.systemStatus ||= {}; session.global.externalStatus ||= {}; session.global.outsidePlan ??= null; session.global.fieldServices ||= {}; session.global.act6InvestigationTime ??= null; session.pendingEnding ??= null;
   session.safetyBriefed ??= false; session.debrief ||= { currentStep: 1, notes: {}, firstSteps: {}, profileSignals: [] }; session.debrief.notes ||= {}; session.debrief.firstSteps ||= {}; session.debrief.profileSignals ||= []; session.debrief.currentStep ||= 1;
   session.playtest ||= { ratings: {}, notes: "", disposition: "unreviewed", updatedAt: null }; session.playtest.ratings ||= {}; session.playtest.notes ||= ""; session.playtest.disposition ||= "unreviewed"; session.playtest.updatedAt ??= null;
   session.metrics ||= { startedAt: null, endedAt: null, contributions: {} }; session.metrics.startedAt ??= null; session.metrics.endedAt ??= null; session.metrics.contributions ||= {};
   session.act1Intro ??= null;
   session.act2Intro ??= null;
+  session.act3Intro ??= null;
+  session.act4Intro ??= null;
   session.act1ActiveTransmission ??= null;
   if(session.stage===5&&session.stageStatus==="live"&&!session.cabinRun)initialiseCabinRun(session);
   if(session.stage===6&&session.stageStatus==="live"&&!session.archiveRun)initialiseArchiveRun(session);
@@ -102,11 +112,13 @@ function signalTransmission(session, viewer = { kind: "public" }) {
     const latest=session.repairRun.traffic.at(-1);
     return { source:latest.source, integrity:latest.clarity==="clear"?88:28, transcript:latest.text, instruction:`${latest.ref} / ${latest.stored?"STORED":"NOT STORED"}`, preserved:latest.stored, quality:latest.clarity==="clear"?2:0, privateClarity:false };
   }
+  if(session.stage===3&&!session.act3Run?.impossibleVoicePlayed)return null;
   if (session.stage === 3) return {
+    id:"act3-impossible-voice",
     source:"SOURCE NOT IDENTIFIED",
-    integrity:11,
-    transcript:"…low— … [severe distortion] … twelve … twelve … [unintelligible] … route— … [carrier shriek] …",
-    instruction:"IMPOSSIBLE TRANSMISSION / NOT STORED / OBSOLETE INTERNAL INFRASTRUCTURE",
+    integrity:7,
+    transcript:"Can anyone hear me?",
+    instruction:"IMPOSSIBLE VOICE / NO SOURCE / NOT LOGGED / CANNOT REPLAY",
     audio:base.audio,
     preserved:false,
     quality:0,
@@ -268,8 +280,8 @@ function emitRepairTraffic(session, ref) {
     "COMM-01":{title:"CALDER VALE CONTAINMENT FAILURE",alwaysDegraded:true,source:"CALDER VALE MATERIALS / EMERGENCY",clear:"Calder Vale Materials. Containment failure. Airborne release moving upslope. Emergency crews require respiratory protection.",degraded:"Calder Vale Materials … [signal loss] … containment failure … airborne release … moving upslope … [signal loss] … emergency crews … respiratory protection …",audio:"./assets/audio/act2-comm-01.wav"},
     "COMM-02":{title:"LOWER ROUTE FLOODING",source:"CALDER HIGHWAYS",clear:"Calder Highways. Heavy runoff has overwhelmed drainage. Water is crossing Lower Road around the Lower Route access.",degraded:"Calder Highways … runoff … drainage lost … water … Lower Road … route access …",audio:"./assets/audio/act2-comm-02.wav"},
     "COMM-03":{title:"UPPER RIDGE DAMAGE",source:"CALDER MOUNTAIN RESCUE",clear:"Storm damage confirmed at the Blackout Ridge installation on Upper Ridge. The foot approach is unusable. Any service team will need a high-access kit to reach the equipment.",degraded:"…storm damage confirmed… Blackout Ridge installation… Upper Ridge… [extended signal loss]… reach the equipment.",audio:"./assets/audio/act2-comm-03.wav"},
-    "COMM-04A":{title:"GENERIC FILTER ADVISORY",source:"EMERGENCY CONTROL",clear:"Respiratory equipment advisory. Standard canister service life is thirty-five minutes under rated conditions. Use that figure for preliminary deployment planning. Further advisories will follow.",degraded:"Respiratory equipment advisory… [signal loss]… standard canister service life… thirty-five minutes… rated conditions… [signal loss]… preliminary planning."},
-    "COMM-04B":{title:"INCIDENT ATMOSPHERE ADVISORY",source:"CALDER VALE MATERIALS SITE CHANNEL",clear:"Respiratory equipment advisory. Under current exposure, filter media are degrading faster than rated. Assume twenty-two minutes of protected service life in this atmosphere, rather than the standard thirty-five.",degraded:"Respiratory equipment advisory… filter media… [signal loss]… degrading faster than rated… twenty-two minutes… protected service life… this atmosphere."},
+    "COMM-04A":{title:"GENERIC FILTER ADVISORY",source:"EMERGENCY CONTROL",clear:"Respiratory equipment advisory. Standard canister service life is thirty-three minutes under rated conditions. Use that figure for preliminary deployment planning. Further advisories will follow.",degraded:"Respiratory equipment advisory… [signal loss]… standard canister service life… thirty-three minutes… rated conditions… [signal loss]… preliminary planning."},
+    "COMM-04B":{title:"INCIDENT ATMOSPHERE ADVISORY",source:"CALDER VALE MATERIALS SITE CHANNEL",clear:"Respiratory equipment advisory. Under current exposure, filter media are degrading faster than rated. Assume twenty minutes of protected service life in this atmosphere, rather than the standard thirty-three.",degraded:"Respiratory equipment advisory… filter media… [signal loss]… degrading faster than rated… twenty minutes… protected service life… this atmosphere."},
   };
   const d=definitions[ref], isClear=clear&&!d.alwaysDegraded;
   const receiptStartAt=Date.now(),capturedSource=attributed?d.source:"SOURCE UNRESOLVED",displayedTranscript=isClear?d.clear:d.degraded;
@@ -345,8 +357,10 @@ function startStage(session, stage) {
     lower_road_camera_history:"offline",
     ventilation_path:"offline",
   };
+  if(stage===3)session.act3Run={phase:"planning",impossibleVoicePlayed:false,impossibleVoiceAt:null,finalCall:false,resolution:null};
   if (stage === 4) {
     session.fieldRun = null;
+    if(session.global.outsidePlan?.RUNNER)session.draft.runner=session.global.outsidePlan.RUNNER;
     session.global.fieldServices={external_inbound_path:"not_restored",external_outbound_path:"not_restored",lower_road_camera_service:"not_restored",upper_ridge_service:"not_restored"};
   }
   if (stage === 5) initialiseCabinRun(session);
@@ -356,9 +370,11 @@ function startStage(session, stage) {
   const now=Date.now();
   session.act1Intro=stage===1?{startedAt:now,endsAt:now+ACT1_LEAD_IN_MS}:null;
   session.act2Intro=stage===2?{startedAt:now,endsAt:now+ACT2_OPENING_MS}:null;
+  session.act3Intro=stage===3?{startedAt:now,endsAt:now+ACT3_OPENING_MS}:null;
+  session.act4Intro=null;
   if(stage===2)session.repairRun.planningStartedAt=now+ACT2_OPENING_MS;
   session.act1ActiveTransmission=null;
-  session.clock = { duration, remaining: duration, running: true, endAt: now + duration * 1000 + (stage===1?ACT1_LEAD_IN_MS:stage===2?ACT2_OPENING_MS:0) };
+  session.clock = { duration, remaining: duration, running: true, endAt: now + duration * 1000 + (stage===1?ACT1_LEAD_IN_MS:stage===2?ACT2_OPENING_MS:stage===3?ACT3_OPENING_MS:0) };
   if(stage===7)initialiseFinaleRun(session);
   bump(session, `Stage ${stage} started: ${definition.title}`);
   if ([4,7].includes(stage)) advanceAir(session, `${definition.kicker} pressure`);
@@ -587,6 +603,127 @@ function finalePublicState(session,viewer){
   return {phase:run.phase,mode,belowCount:run.below.length,total:run.order.length,currentName:run.currentRole?roleName(session,run.currentRole):null,airCondition:r12Condition(run),purgeAvailable:run.purgeAvailable,purgeRemaining:run.purgeRemaining,purgeLocked:run.purgeLockedUntil>Date.now(),canPurge:below&&["transfer","surface"].includes(run.phase)&&run.purgeRemaining>0&&run.purgeLockedUntil<=Date.now(),transfer:current&&run.phase==="transfer"?{step:run.transferStep,mistakes:run.transferMistakes,steps:ACTIONS.transferSteps.map(item=>[...item])}:null,surface:(current&&run.phase==="surface"||viewer.kind==="facilitator"&&run.phase==="surface")?{...run.surfaceDraft}:null,surfaceCommitted:viewer.kind==="facilitator"&&run.surfaceCommitted?{...run.surfaceCommitted}:null,messageNeedsRating:viewer.kind==="facilitator"&&Boolean(run.surfaceCommitted&&!run.messageRating),messageRating:viewer.kind==="facilitator"?run.messageRating:null,communicationLocked:below||surfaceOperator,calculation:viewer.kind==="facilitator"&&run.calculation?{...run.calculation}:null};
 }
 
+const act3Location = id => ACT3_LOCATIONS.find(location=>location.id===id);
+const act3Label = (entries,id) => entries.find(([value])=>value===id)?.[1] || "NOT SELECTED";
+const samePair = (row,first,second) => new Set([row.first,row.second]).size===2 && new Set([row.first,row.second]).has(first) && new Set([row.first,row.second]).has(second);
+
+export function act3PlanPreview(draft = {}) {
+  const first=act3Location(draft.firstLocation),second=act3Location(draft.secondLocation);
+  const filterUse=draft.filterUse===""||draft.filterUse===null||draft.filterUse===undefined?null:Number(draft.filterUse);
+  const complete=Boolean(first&&second&&draft.tool1&&draft.tool2&&draft.supportItem&&Number.isFinite(filterUse));
+  const duplicate=Boolean(first&&second&&first.id===second.id);
+  const supportConflict=Boolean(first&&second&&new Set([first.id,second.id]).has("c")&&new Set([first.id,second.id]).has("d"));
+  const ordered=first&&second?ACT3_VALID_DEPLOYMENTS.find(row=>row.first===first.id&&row.second===second.id):null;
+  const pair=first&&second?ACT3_VALID_DEPLOYMENTS.find(row=>samePair(row,first.id,second.id)):null;
+  const errors=[];
+  if(!first)errors.push("Select the first repair location.");
+  if(!second)errors.push("Select the second repair location.");
+  if(duplicate)errors.push("The deployment must visit two different locations.");
+  if(!draft.tool1)errors.push("Select the repair tool for the first location.");
+  if(!draft.tool2)errors.push("Select the repair tool for the second location.");
+  if(!draft.supportItem)errors.push("Select one support item.");
+  if(filterUse===null||!Number.isFinite(filterUse))errors.push("Enter the complete three-stage filter use.");
+  if(supportConflict)errors.push("CAM-01 and AUX-01 require two different specialist support items; choose another pair.");
+  if(first&&second&&!duplicate&&!supportConflict&&!pair)errors.push("This location pair cannot be completed within the published route and support limits.");
+  const canonical=ordered||pair||null;
+  const planningErrors=[];
+  if(canonical&&complete&&!duplicate&&!supportConflict){
+    if(!ordered)planningErrors.push(`Reverse the route to ${act3Location(canonical.first).code} → ${act3Location(canonical.second).code}.`);
+    if(!canonical.tool1.includes(draft.tool1))planningErrors.push(`Tool 1 corrected to ${act3Label(ACT3_REPAIR_TOOLS,canonical.tool1[0])}.`);
+    if(!canonical.tool2.includes(draft.tool2))planningErrors.push(`Tool 2 corrected to ${act3Label(ACT3_REPAIR_TOOLS,canonical.tool2[0])}.`);
+    if(canonical.support!==draft.supportItem)planningErrors.push(`Support item corrected to ${act3Label(ACT3_SUPPORT_ITEMS,canonical.support)}.`);
+    if(canonical.filterUse!==filterUse)planningErrors.push(`Filter use corrected to ${canonical.filterUse} units.`);
+  }
+  const stageCosts=first&&second&&!duplicate?{
+    stage1:first.stage1,
+    stage2:ACT3_STAGE2_COSTS[`${first.id}>${second.id}`]??null,
+    stage3:second.stage3,
+  }:null;
+  const calculated=stageCosts&&stageCosts.stage2!==null?stageCosts.stage1+stageCosts.stage2+stageCosts.stage3:null;
+  const capacity=draft.supportItem==="emergency_filter"?115:100;
+  const exact=Boolean(complete&&ordered&&!planningErrors.length);
+  return {
+    complete,submittable:complete&&!duplicate&&!supportConflict&&Boolean(pair),exact,
+    first:first?.id||null,second:second?.id||null,tool1:draft.tool1||null,tool2:draft.tool2||null,supportItem:draft.supportItem||null,
+    filterUse,capacity,stageCosts,calculated,errors,planningErrors,
+    canonical:canonical?{
+      first:canonical.first,second:canonical.second,
+      tool1:canonical.tool1.includes(draft.tool1)?draft.tool1:canonical.tool1[0],
+      tool2:canonical.tool2.includes(draft.tool2)?draft.tool2:canonical.tool2[0],
+      supportItem:canonical.support,filterUse:canonical.filterUse,
+    }:null,
+  };
+}
+
+function lockAct3Deployment(session,canonical,{mode="correct",submitted=null}={}){
+  // Act 4 handoff v0.4 supersedes the earlier 5/4-minute planning handoff.
+  // A clean Act 3 plan receives six minutes per repair; corrected or random
+  // deployment receives five. The two repair clocks remain independent.
+  const allowance=mode==="correct"?360:300;
+  const plan={
+    FIRST_LOCATION:canonical.first,
+    SECOND_LOCATION:canonical.second,
+    REPAIR_TOOL_1:canonical.tool1,
+    REPAIR_TOOL_2:canonical.tool2,
+    SUPPORT_ITEM:canonical.supportItem,
+    FILTER_USE:canonical.filterUse,
+    REPAIR_ALLOWANCE:allowance,
+    RUNNER:null,
+    // Compatibility fields consumed by the current Act 4 runtime.
+    PLANNED_INBOUND_LOCATION:canonical.first,
+    PLANNED_OUTBOUND_LOCATION:canonical.second,
+    RUNNER_FIRST_TARGET:canonical.first,
+    FIELD_EQUIPMENT:[canonical.tool1,canonical.tool2,canonical.supportItem],
+  };
+  session.global.outsidePlan=plan;
+  session.act3Run.phase="runner";
+  session.act3Run.resolution={mode,allowance,submitted:submitted?{...submitted}:null,confirmed:{...plan,FIELD_EQUIPMENT:[...plan.FIELD_EQUIPMENT]},at:Date.now()};
+  session.clock.remaining=remaining(session.clock);session.clock.running=false;session.clock.endAt=null;
+  bump(session,mode==="correct"?"Act 3 deployment accepted without correction":mode==="corrected"?"Act 3 deployment corrected; four-minute repair allowance applied":"Act 3 deployment assigned after final call; four-minute repair allowance applied");
+}
+
+function submitAct3Deployment(session,viewer){
+  if(session.stage!==3||session.stageStatus!=="live"||!session.act3Run||!["planning","final_call"].includes(session.act3Run.phase))throw new Error("The Act 3 deployment window is not accepting submissions");
+  if(viewer.kind!=="facilitator")throw new Error("Only the facilitator can commit the crew's deployment");
+  const preview=act3PlanPreview(session.draft);
+  if(preview.errors.some(error=>/CAM-01 and AUX-01/.test(error))){
+    if(session.act3Run.finalCall){const random=ACT3_VALID_DEPLOYMENTS[crypto.randomInt(ACT3_VALID_DEPLOYMENTS.length)];return lockAct3Deployment(session,{first:random.first,second:random.second,tool1:random.tool1[0],tool2:random.tool2[0],supportItem:random.support,filterUse:random.filterUse},{mode:"random",submitted:session.draft});}
+    throw new Error("CAM-01 and AUX-01 require different support items. Choose another pair; no penalty has been applied.");
+  }
+  if(!preview.complete)throw new Error(preview.errors[0]||"Complete every deployment field before committing");
+  if(!preview.submittable)throw new Error(preview.errors[0]||"Choose a viable two-location deployment");
+  // The one-time unexplained voice must happen before an early plan closes.
+  // Auto-deliver it here if the facilitator has not triggered it manually;
+  // it deliberately creates no source, traffic-log entry or replay record.
+  if(!session.act3Run.impossibleVoicePlayed){
+    session.act3Run.impossibleVoicePlayed=true;
+    session.act3Run.impossibleVoiceAt=Date.now();
+  }
+  lockAct3Deployment(session,preview.canonical,{mode:preview.exact?"correct":"corrected",submitted:session.draft});
+}
+
+function assignRandomAct3Deployment(session){
+  if(session.stage!==3||session.stageStatus!=="live"||session.act3Run?.phase!=="final_call")throw new Error("Random assignment is available only after the Act 3 final call");
+  const row=ACT3_VALID_DEPLOYMENTS[crypto.randomInt(ACT3_VALID_DEPLOYMENTS.length)];
+  lockAct3Deployment(session,{first:row.first,second:row.second,tool1:row.tool1[0],tool2:row.tool2[0],supportItem:row.support,filterUse:row.filterUse},{mode:"random",submitted:null});
+}
+
+function nominateAct3Runner(session,viewer,runner){
+  if(viewer.kind!=="facilitator")throw new Error("The facilitator records the crew's runner nomination");
+  if(session.stage!==3||session.stageStatus!=="live"||session.act3Run?.phase!=="runner"||!session.global.outsidePlan)throw new Error("Resolve the deployment before nominating the runner");
+  if(!activeRoleIds(session.playerCount).includes(runner)||!session.players[runner]||session.absentRoles[runner])throw new Error("Choose a connected crew member as runner");
+  session.draft.runner=runner;session.global.outsidePlan.RUNNER=runner;session.act3Run.resolution.runner=runner;
+  resolveStage(session,false);
+}
+
+function triggerImpossibleVoice(session,viewer){
+  if(viewer.kind!=="facilitator")throw new Error("Only the facilitator can trigger the Impossible Voice");
+  if(session.stage!==3||session.stageStatus!=="live"||session.act3Run?.phase!=="planning")throw new Error("The Impossible Voice can be triggered only during active Act 3 planning");
+  if(session.act3Run.impossibleVoicePlayed)throw new Error("The Impossible Voice has already played and cannot be replayed");
+  session.act3Run.impossibleVoicePlayed=true;session.act3Run.impossibleVoiceAt=Date.now();
+  bump(session,"Impossible Voice played once; no source or traffic-log entry created");
+}
+
 export function outsidePlanPreview(draft = {}) {
   const inbound=outsideLocation(draft.plannedInbound),outbound=outsideLocation(draft.plannedOutbound),equipment=Array.isArray(draft.equipment)?draft.equipment:[];
   const chosen=[inbound,outbound].filter(Boolean),distinct=chosen.length===2&&inbound.id!==outbound.id;
@@ -656,31 +793,39 @@ export function decisionPreview(session) {
       if(!preview.ready)preview.warnings.push("Assign one different amber FAULT system to every player.");
     }
   } else if (stage === 3) {
-    const plan=outsidePlanPreview(d),first=outsideLocation(plan.first),second=outsideLocation(plan.second);
-    preview.summary = plan.ready
-      ? `Physical route viable: ${first.name} → ${second.name}, deployment fixed at T+0.`
-      : "Complete a physically viable two-stop deployment plan.";
-    preview.keeps = [
-      `Planned inbound service: ${outsideLocation(d.plannedInbound)?.name||"NOT SET"}.`,
-      `Planned outbound service: ${outsideLocation(d.plannedOutbound)?.name||"NOT SET"}.`,
-      plan.first?`Route order: ${first.name} → ${second.name}.`:"Route order: NOT SET.",
-      `Loadout: ${plan.equipment.length?plan.equipment.map(outsideEquipmentName).join(" + "):"NOT SET"}.`,
+    const run=session.act3Run,confirmed=run?.resolution?.confirmed;
+    const visibleDraft=confirmed?{
+      firstLocation:confirmed.FIRST_LOCATION,secondLocation:confirmed.SECOND_LOCATION,
+      tool1:confirmed.REPAIR_TOOL_1,tool2:confirmed.REPAIR_TOOL_2,
+      supportItem:confirmed.SUPPORT_ITEM,filterUse:confirmed.FILTER_USE,
+    }:d;
+    const plan=act3PlanPreview(visibleDraft);
+    const resolutionLabel=run?.resolution?.mode==="correct"?"Deployment accepted":run?.resolution?.mode==="corrected"?"Deployment corrected":"Valid deployment assigned";
+    preview.summary=run?.phase==="runner"?`${resolutionLabel}. Nominate one connected crew member as the Act 4 runner.`:run?.phase==="final_call"?"Planning time expired. Commit immediately or let the facilitator assign a valid deployment.":plan.complete?`${act3Location(plan.first)?.code||"—"} → ${act3Location(plan.second)?.code||"—"} ready for final commitment.`:"Complete all six deployment fields.";
+    preview.keeps=[
+      `Route: ${act3Location(plan.first)?.code||"NOT SET"} → ${act3Location(plan.second)?.code||"NOT SET"}.`,
+      `Tools: ${act3Label(ACT3_REPAIR_TOOLS,visibleDraft.tool1)} / ${act3Label(ACT3_REPAIR_TOOLS,visibleDraft.tool2)}.`,
+      `Support: ${act3Label(ACT3_SUPPORT_ITEMS,visibleDraft.supportItem)}.`,
+      `Crew filter total: ${plan.filterUse??"NOT SET"} / capacity ${plan.capacity}.`,
     ];
-    preview.costs=plan.stops.map(stop=>`${stop.order}. ${stop.name}: arrive T+${stop.arrival}, service complete T+${stop.finish}, forecast ${stop.ppm} ppm.`);
-    preview.warnings=[...plan.warnings];preview.ready=plan.ready;
-    preview.positiveLabel="LOCKED PLAN INPUTS";preview.costLabel="FIXED T+0 FIELD FORECAST";
-    preview.footer="This display checks physical feasibility only. It does not confirm whether either chosen location restores the diagnosed communications function.";
+    // Keep the published arithmetic as an actual player puzzle. The engine
+    // validates it after commitment but never calculates it in the live UI.
+    preview.costs=[run?.phase==="runner"?`${Math.round((run.resolution?.allowance||300)/60)} minutes per Act 4 repair.`:"Use the Navigation Resource to calculate all three stages; the station checks the total only after commitment."];
+    preview.warnings=[...plan.errors];preview.ready=plan.submittable;
+    preview.positiveLabel="SHARED DEPLOYMENT";preview.costLabel="THREE-STAGE FILTER CHECK";
+    preview.footer="COMMIT DEPLOYMENT is final. A correct plan gives six minutes per Act 4 repair; any corrected or randomly assigned plan gives five minutes per repair.";
   } else if (stage === 4) {
     if (session.fieldRun?.active) {
       const run=session.fieldRun,current=outsideLocation(run.route[run.currentIndex]);
       preview.summary = `${roleName(session,run.runner)} is servicing ${current.name} — location ${run.currentIndex+1} of 2.`;
       preview.keeps = [`Locked route: ${run.route.map(id=>outsideLocation(id).name).join(" → ")}.`,`Loadout: ${run.equipment.map(outsideEquipmentName).join(" + ")}.`,`Local field radio: CLEAR.`];
-      preview.costs = [`${run.results.length} of 2 services resolved.`,run.instruction?"Station instruction locked; runner action required.":"Runner observation must be interpreted by station crew."];
-      preview.ready=false;preview.footer="The route and equipment cannot be changed. Each installation receives one action and no retry.";
+      const board=run.boards?.[run.currentIndex+1],complete=Object.values(board?.modules||{}).filter(module=>module.completed).length;
+      preview.costs = [`${run.results.length} of 2 services resolved.`,run.phase==="service"?`${complete} of 6 repair modules complete at this destination.`:`Field phase: ${run.phase.toUpperCase()}.`];
+      preview.ready=false;preview.footer="The route and equipment cannot be changed. Incorrect module submissions remain recoverable while the shared repair clock is running.";
     } else {
-      const plan=session.global.outsidePlan,selected=plan?[plan.PLANNED_INBOUND_LOCATION,plan.PLANNED_OUTBOUND_LOCATION]:[],first=plan?.RUNNER_FIRST_TARGET,second=selected.find(id=>id!==first);
+      const plan=session.global.outsidePlan,first=plan?.FIRST_LOCATION||plan?.RUNNER_FIRST_TARGET,second=plan?.SECOND_LOCATION||[plan?.PLANNED_INBOUND_LOCATION,plan?.PLANNED_OUTBOUND_LOCATION].find(id=>id&&id!==first);
       preview.summary = `${roleName(session,d.runner)} will execute the locked route ${outsideLocation(first)?.name||"UNAVAILABLE"} → ${outsideLocation(second)?.name||"UNAVAILABLE"}.`;
-      preview.keeps = [`Destinations and order remain locked from Act 3.`,`Loadout: ${(plan?.FIELD_EQUIPMENT||[]).map(outsideEquipmentName).join(" + ")||"UNAVAILABLE"}.`,`Runner/station local radio remains clear.`];
+      preview.keeps = [`Destinations and order remain locked from Act 3.`,`Loadout: ${(plan?.FIELD_EQUIPMENT||[]).map(id=>act3Label([...ACT3_REPAIR_TOOLS,...ACT3_SUPPORT_ITEMS],id)).join(" + ")||"UNAVAILABLE"}.`,`Repair allowance: ${Math.round((plan?.REPAIR_ALLOWANCE||360)/60)} minutes per repair.`,`Runner/station local radio remains clear.`];
       preview.costs = ["Each site permits one service action; failure does not reopen planning."];
       preview.ready = activeRoleIds(session.playerCount).includes(d.runner)&&Boolean(first&&second);
       if (!preview.ready) preview.warnings.push("Assign an available runner to execute the locked mission.");
@@ -752,22 +897,19 @@ function resolveStage(session, expired = false) {
       "No score or consequential-choice marker is shown; only the true working/fault state remains.",
     ];
   } else if (stage === 3) {
-    const plan=outsidePlanPreview(d),first=outsideLocation(plan.first),second=outsideLocation(plan.second);
-    session.global.outsidePlan={
-      PLANNED_INBOUND_LOCATION:d.plannedInbound,
-      PLANNED_OUTBOUND_LOCATION:d.plannedOutbound,
-      RUNNER_FIRST_TARGET:d.firstTarget,
-      FIELD_EQUIPMENT:[...d.equipment],
-    };
-    headline = expired ? "Deployment plan locked at timeout" : "Outside plan locked";
-    detail = `The runner leaves at T+0 for ${first.name}, then ${second.name}. The station confirms only that the route is physically serviceable; the communications diagnosis remains unscored.`;
-    quality = "mixed";
-    decision = `${first.name} → ${second.name}; ${plan.equipment.map(outsideEquipmentName).join(" + ")}.`;
+    const run=session.act3Run,resolution=run?.resolution,plan=session.global.outsidePlan;
+    if(!resolution||!plan?.RUNNER)throw new Error("Resolve the deployment and nominate a runner before closing Act 3");
+    const first=act3Location(plan.FIRST_LOCATION),second=act3Location(plan.SECOND_LOCATION),correct=resolution.mode==="correct";
+    headline = correct ? "Deployment accepted" : resolution.mode==="corrected" ? "Deployment corrected" : "Deployment assigned";
+    detail = `${roleName(session,plan.RUNNER)} will run ${first.code} → ${second.code} with ${act3Label(ACT3_SUPPORT_ITEMS,plan.SUPPORT_ITEM)}. Act 4 receives ${Math.round(plan.REPAIR_ALLOWANCE/60)} minutes for each repair.`;
+    quality = correct ? "strong" : "mixed";
+    decision = `${first.code} → ${second.code}; ${act3Label(ACT3_REPAIR_TOOLS,plan.REPAIR_TOOL_1)} + ${act3Label(ACT3_REPAIR_TOOLS,plan.REPAIR_TOOL_2)} + ${act3Label(ACT3_SUPPORT_ITEMS,plan.SUPPORT_ITEM)}; ${plan.FILTER_USE} filter units.`;
     impacts = [
-      `Inbound service planned at ${outsideLocation(d.plannedInbound).name}.`,
-      `Human outbound service planned at ${outsideLocation(d.plannedOutbound).name}.`,
-      ...plan.stops.map(stop=>`${stop.name}: service complete T+${stop.finish} at forecast ${stop.ppm} ppm.`),
-      "No correctness result is shown. The runner acts on the crew's diagnosis.",
+      `Route locked: ${first.code} → ${second.code} → CABIN.`,
+      `Loadout locked: ${act3Label(ACT3_REPAIR_TOOLS,plan.REPAIR_TOOL_1)} / ${act3Label(ACT3_REPAIR_TOOLS,plan.REPAIR_TOOL_2)} / ${act3Label(ACT3_SUPPORT_ITEMS,plan.SUPPORT_ITEM)}.`,
+      `Filter use: ${plan.FILTER_USE} of ${plan.SUPPORT_ITEM==="emergency_filter"?115:100} units.`,
+      `${roleName(session,plan.RUNNER)} nominated as runner.`,
+      correct?"No planning correction: six minutes per Act 4 repair.":"Corrected or random deployment: five minutes per Act 4 repair.",
     ];
   } else if (stage === 4) {
     const run=session.fieldRun,restored=(run?.results||[]).filter(result=>result.success),failed=(run?.results||[]).filter(result=>!result.success);
@@ -816,7 +958,7 @@ function resolveStage(session, expired = false) {
   session.global.upperAir = clamp(session.global.upperAir, 0, 3);
   session.global.trust = clamp(session.global.trust, 0, 2);
   session.global.official = clamp(session.global.official + (expired && ![1,5,6,7].includes(stage) ? 1 : 0), 0, 3);
-  session.decisions[stage] = stage===7 ? {surface:{...session.finaleRun.surfaceCommitted},messageRating:session.finaleRun.messageRating,external:{status:session.finaleRun.calculation.status,message:session.finaleRun.calculation.message,release:session.finaleRun.calculation.release},finalAir:session.finaleRun.calculation.finalAir,survivalTime:session.finaleRun.calculation.survivalTime,rescueTime:session.finaleRun.calculation.rescueTime,endingBand:session.finaleRun.calculation.band} : stage===6 ? {investigationWindow:session.clock.duration} : stage===5 ? {moves:session.cabinRun.moves.map(move=>({...move})),act6InvestigationTime:session.global.act6InvestigationTime,purgeAvailable:session.cabinRun.purgeAvailable,purgeUsed:(session.cabinRun.purgeAvailable?2:0)-session.cabinRun.purgeRemaining} : stage===4 ? {runner:d.runner,route:[...(session.fieldRun?.route||[])],results:(session.fieldRun?.results||[]).map(result=>({locationId:result.locationId,success:result.success,instruction:result.instruction,action:result.action,expired:Boolean(result.expired)}))} : stage===3 ? {...session.global.outsidePlan,FIELD_EQUIPMENT:[...session.global.outsidePlan.FIELD_EQUIPMENT]} : { ...d };
+  session.decisions[stage] = stage===7 ? {surface:{...session.finaleRun.surfaceCommitted},messageRating:session.finaleRun.messageRating,external:{status:session.finaleRun.calculation.status,message:session.finaleRun.calculation.message,release:session.finaleRun.calculation.release},finalAir:session.finaleRun.calculation.finalAir,survivalTime:session.finaleRun.calculation.survivalTime,rescueTime:session.finaleRun.calculation.rescueTime,endingBand:session.finaleRun.calculation.band} : stage===6 ? {investigationWindow:session.clock.duration} : stage===5 ? {moves:session.cabinRun.moves.map(move=>({...move})),act6InvestigationTime:session.global.act6InvestigationTime,purgeAvailable:session.cabinRun.purgeAvailable,purgeUsed:(session.cabinRun.purgeAvailable?2:0)-session.cabinRun.purgeRemaining} : stage===4 ? {runner:d.runner,route:[...(session.fieldRun?.route||[])],results:(session.fieldRun?.results||[]).map(result=>({locationId:result.locationId,success:result.success,instruction:result.instruction,action:result.action,expired:Boolean(result.expired)}))} : stage===3 ? {...session.global.outsidePlan,FIELD_EQUIPMENT:[...session.global.outsidePlan.FIELD_EQUIPMENT],resolution:session.act3Run?.resolution?.mode} : { ...d };
   session.stageStatus = "resolved"; session.clock.remaining = remaining(session.clock); session.clock.running = false; session.clock.endAt = null;
   if (expired) impacts.unshift(stage === 1 ? "Time expired: unanswered records closed as unresolved; no correctness result was shown." : stage===5 ? "The cabin window ended: sustained performance was converted into investigation time before the integrity sweep." : stage===6 ? "The investigation window closed on schedule; execution moves to Act 7." : "Time expired: official pressure advanced before the plan resolved.");
   session.outcomes[stage] = { headline, detail, quality, expired, decision, impacts, next: STAGES[stage]?.story?.next || "The incident continues.", at: Date.now() };
@@ -851,9 +993,12 @@ function validateDraftUpdate(session, payload) {
     for(const [role,id] of Object.entries(submitted)){if(!roles.has(role)||id&&!allowed.has(id))throw new Error("Repair assignment is invalid");repairs[role]=String(id||"");}
     const chosen=Object.values(repairs).filter(Boolean);if(new Set(chosen).size!==chosen.length)throw new Error("Each selected system can be assigned only once");next.repairs=repairs;
   } else if(stage===3) {
-    const locations=optionIds(STAGES[3].options),equipment=new Set(FIELD_EQUIPMENT.map(([id])=>id));
-    for(const key of ["plannedInbound","plannedOutbound","firstTarget"])if(key in payload){if(payload[key]&&!locations.has(payload[key]))throw new Error("Field location is invalid");next[key]=String(payload[key]||"");}
-    if("equipment" in payload){if(!Array.isArray(payload.equipment)||payload.equipment.length>FIELD_EQUIPMENT.length||new Set(payload.equipment).size!==payload.equipment.length||payload.equipment.some(item=>!equipment.has(item)))throw new Error("Field equipment selection is invalid");next.equipment=[...payload.equipment];}
+    if(!["planning","final_call"].includes(session.act3Run?.phase))throw new Error("The deployment is already locked");
+    const locations=optionIds(STAGES[3].options),tools=new Set(ACT3_REPAIR_TOOLS.map(([id])=>id)),support=new Set(ACT3_SUPPORT_ITEMS.map(([id])=>id));
+    for(const key of ["firstLocation","secondLocation"]){if(key in payload){if(payload[key]&&!locations.has(payload[key]))throw new Error("Field location is invalid");next[key]=String(payload[key]||"");}}
+    for(const key of ["tool1","tool2"]){if(key in payload){if(payload[key]&&!tools.has(payload[key]))throw new Error("Repair tool is invalid");next[key]=String(payload[key]||"");}}
+    if("supportItem" in payload){if(payload.supportItem&&!support.has(payload.supportItem))throw new Error("Support item is invalid");next.supportItem=String(payload.supportItem||"");}
+    if("filterUse" in payload){const value=payload.filterUse===""?"":Number(payload.filterUse);if(value!==""&&(!Number.isInteger(value)||value<0||value>200))throw new Error("Filter use must be a whole number from 0 to 200");next.filterUse=value;}
   } else if(stage===4 && !session.fieldRun?.active) {
     if("runner" in payload){if(!activeRoleIds(session.playerCount).includes(payload.runner))throw new Error("Runner is invalid");next.runner=payload.runner;}
     for(const forbidden of ["destination","abort","route","equipment"])if(forbidden in payload)throw new Error("The Act 3 route and equipment are locked");
@@ -867,18 +1012,140 @@ function validateDraftUpdate(session, payload) {
   return next;
 }
 
+function act4Allocations(session,runner,boardNumber){
+  const cabin=activeRoleIds(session.playerCount).filter(role=>role!==runner&&!session.absentRoles[role]);
+  const patterns={3:[2,2,2],4:[2,2,1,1],5:[2,1,1,1,1],6:[1,1,1,1,1,1]};
+  let counts=[...(patterns[cabin.length]||[])];
+  if(boardNumber===2&&cabin.length===4)counts=[1,1,2,2];
+  else if(boardNumber===2&&cabin.length===5)counts=[1,1,1,1,2];
+  const modules=ACT4_MODULES[boardNumber].map(item=>item.id),allocations={};let cursor=0;
+  cabin.forEach((role,index)=>{allocations[role]=modules.slice(cursor,cursor+(counts[index]||1));cursor+=counts[index]||1;});
+  return allocations;
+}
+
 function beginFieldRun(session) {
   const d=session.draft;
   if(!activeRoleIds(session.playerCount).includes(d.runner))throw new Error("Assign an available runner");
   const plan=session.global.outsidePlan;
   if(!plan)throw new Error("The locked Outside Plan is unavailable");
-  const selected=[plan.PLANNED_INBOUND_LOCATION,plan.PLANNED_OUTBOUND_LOCATION];
-  const first=plan.RUNNER_FIRST_TARGET,second=selected.find(id=>id!==first);
+  const first=plan.FIRST_LOCATION||plan.RUNNER_FIRST_TARGET,second=plan.SECOND_LOCATION||[plan.PLANNED_INBOUND_LOCATION,plan.PLANNED_OUTBOUND_LOCATION].find(id=>id!==first);
   if(!FIELD_GAMES[first]||!FIELD_GAMES[second])throw new Error("The locked field route is invalid");
-  const forecast=outsidePlanPreview({plannedInbound:selected[0],plannedOutbound:selected[1],firstTarget:first,equipment:plan.FIELD_EQUIPMENT});
-  if(!forecast.ready)throw new Error("The locked Outside Plan is not physically viable");
-  session.fieldRun={active:true,runner:d.runner,route:[first,second],currentIndex:0,phase:"service",instruction:null,results:[],forecast:forecast.stops.map(stop=>({...stop})),equipment:[...plan.FIELD_EQUIPMENT],localRadio:"clear"};
+  const firstLocation=outsideLocation(first),secondLocation=outsideLocation(second),firstFinish=firstLocation.travel+firstLocation.service,secondArrival=firstFinish+(firstLocation.transfer[second]||0),secondFinish=secondArrival+secondLocation.service;
+  const forecast=[{id:first,name:firstLocation.name,order:1,arrival:firstLocation.travel,finish:firstFinish,ppm:Number((firstLocation.concentration+firstLocation.rise*firstFinish).toFixed(1))},{id:second,name:secondLocation.name,order:2,arrival:secondArrival,finish:secondFinish,ppm:Number((secondLocation.concentration+secondLocation.rise*secondFinish).toFixed(1))}];
+  const now=Date.now();
+  session.act4Intro={startedAt:now,endsAt:now+ACT4_OPENING_MS};
+  const boardVariant=[...session.code].reduce((sum,char)=>sum+char.charCodeAt(0),0);
+  session.fieldRun={active:true,runner:d.runner,route:[first,second],currentIndex:0,phase:"travel",transitionAt:session.act4Intro.endsAt+ACT4_TRAVEL_MS,instruction:null,results:[],forecast,equipment:[...(plan.FIELD_EQUIPMENT||[])],repairAllowance:plan.REPAIR_ALLOWANCE||360,localRadio:"clear",boards:{1:{modules:createAct4Board(1,boardVariant),allocations:act4Allocations(session,d.runner,1)},2:{modules:createAct4Board(2,boardVariant),allocations:act4Allocations(session,d.runner,2)}}};
+  session.clock={duration:session.fieldRun.repairAllowance,remaining:session.fieldRun.repairAllowance,running:false,endAt:null};
   bump(session,`Runner deployed to ${outsideLocation(first).name} on the locked route`);
+}
+
+function startAct4Test(session){
+  if(Object.keys(session.players).length!==session.playerCount)throw new Error(`Connect all ${session.playerCount} crew terminals before starting the Act 4 test`);
+  const runner=activeRoleIds(session.playerCount).includes("operations")?"operations":activeRoleIds(session.playerCount)[0];
+  session.metrics.startedAt=Date.now();
+  session.testMode={act:4,startedAt:Date.now()};
+  session.global.systemStatus=Object.fromEntries(ACT2_SYSTEMS.map(system=>[system.id,"working"]));
+  syncLegacySystems(session);
+  session.global.externalStatus={external_inbound:"offline",external_human_outbound:"offline",lower_road_camera_history:"offline",ventilation_path:"offline"};
+  session.global.outsidePlan={
+    FIRST_LOCATION:"c",SECOND_LOCATION:"a",REPAIR_TOOL_1:"valve_wrench",REPAIR_TOOL_2:"signal_meter",SUPPORT_ITEM:"flood_kit",FILTER_USE:99,REPAIR_ALLOWANCE:360,RUNNER:runner,
+    PLANNED_INBOUND_LOCATION:"c",PLANNED_OUTBOUND_LOCATION:"a",RUNNER_FIRST_TARGET:"c",FIELD_EQUIPMENT:["valve_wrench","signal_meter","flood_kit"],
+  };
+  startStage(session,4);
+  beginFieldRun(session);
+  bump(session,"Direct Act 4 test started with CAM-01 → RX-01 and a six-minute allowance");
+}
+
+function act4RunnerRequired(session,viewer){
+  const run=session.fieldRun;
+  if(session.stage!==4||session.stageStatus!=="live"||!run?.active)throw new Error("No field repair is active");
+  if(session.act4Intro?.endsAt>Date.now())throw new Error("The field repair opens after the deployment sequence");
+  if(run.phase!=="service")throw new Error("The runner is still travelling to the field installation");
+  if(viewer.kind!=="facilitator"&&viewer.role!==run.runner)throw new Error("Only the assigned runner can operate the repair board");
+  return run;
+}
+
+function act4MutableModule(session,viewer,moduleId){
+  const run=act4RunnerRequired(session,viewer),boardNumber=run.currentIndex+1,board=run.boards?.[boardNumber],module=board?.modules?.[moduleId];
+  if(!module||!ACT4_MODULES[boardNumber].some(item=>item.id===moduleId))throw new Error("Repair module is invalid");
+  if(module.completed)throw new Error("Completed modules are locked");
+  return {run,boardNumber,board,module};
+}
+
+function updateAct4Module(session,viewer,payload){
+  const {module}=act4MutableModule(session,viewer,String(payload.moduleId||"")),op=String(payload.op||""),value=payload.value,index=Number(payload.index);
+  const append=(limit,allowed)=>{if(!allowed.includes(value)||module.queue.length>=limit)throw new Error("Module input is invalid");module.queue.push(value);};
+  if(op==="clear"){
+    if(Array.isArray(module.queue))module.queue=[];
+    if(module.id==="service_plate")module.queue=[];
+  }else if(module.solution&&Array.isArray(module.queue)&&op==="append"){
+    const allowed=module.solution.every(item=>typeof item==="number")?module.id==="service_plate"?[0,1,2,3,4,5,6,7]:[0,1,2]:module.id==="route_controls"?["up","right","down","left"]:["RESET","CONFIRM"];
+    append(module.solution.length,allowed);
+  }else if(Array.isArray(module.values)&&op==="set"){
+    if(!Number.isInteger(index)||index<0||index>=module.values.length||!Number.isInteger(Number(value)))throw new Error("Module setting is invalid");
+    const numeric=Number(value),max=module.id==="alignment_discs"?8:9,min=module.id==="alignment_discs"?1:0;if(numeric<min||numeric>max)throw new Error("Module setting is invalid");module.values[index]=numeric;
+  }else if(module.id==="patch_matrix"&&op==="select_source"){
+    const source=String(value||"");if(!Object.hasOwn(module.leads,source))throw new Error("Patch source is invalid");module.selectedSource=source;
+  }else if(module.id==="patch_matrix"&&op==="connect"){
+    const source=String(payload.source||module.selectedSource||""),target=String(payload.target||"");if(!Object.hasOwn(module.leads,source)||!/^(PWR|DATA|CTRL|AUX)-[A-D]$/.test(target))throw new Error("Patch connection is invalid");
+    for(const [existingSource,existingTarget] of Object.entries(module.connections))if(existingTarget===target&&existingSource!==source)delete module.connections[existingSource];
+    module.connections[source]=target;module.selectedSource=null;
+  }else if(module.id==="switch_bank"&&op==="toggle"){
+    if(!Number.isInteger(index)||index<0||index>5)throw new Error("Switch is invalid");module.switches[index]=module.switches[index]==="UP"?"DOWN":"UP";
+  }else if(module.id==="switch_bank"&&op==="sample"){
+    if(JSON.stringify(module.switches)!==JSON.stringify(module.test)){module.feedback="TEST CONFIGURATION REJECTED";module.sampled=false;}else{module.feedback="LAMPS LATCHED";module.sampled=true;}
+  }else if(module.id==="component_order"&&op==="select"){
+    if(!Number.isInteger(index)||index<0||index>4)throw new Error("Component is invalid");if(module.selected===null)module.selected=index;else{[module.items[module.selected],module.items[index]]=[module.items[index],module.items[module.selected]];module.selected=null;}
+  }else if(module.id==="fuse_allocation"&&op==="select"){
+    if(!module.fuses.includes(value))throw new Error("Fuse is invalid");module.selected=value;
+  }else if(module.id==="fuse_allocation"&&op==="assign"){
+    const circuit=String(payload.target||"");if(!module.selected||!Object.hasOwn(module.circuits,circuit))throw new Error("Fuse assignment is invalid");for(const [key,fuse] of Object.entries(module.assignments))if(fuse===module.selected)delete module.assignments[key];module.assignments[circuit]=module.selected;module.selected=null;
+  }else if(module.id==="load_test"&&op==="test"){
+    if(!["A","B","C"].includes(value))throw new Error("Diagnostic test is invalid");
+    if(value!=="A"&&!module.tests.includes("A"))throw new Error("Run TEST A first");
+    if(value==="B"&&module.meters.TEMPERATURE==="HIGH")throw new Error("TEST A directs this fault to TEST C");
+    if(value==="C"&&module.meters.VIBRATION==="HIGH")throw new Error("TEST A directs this fault to TEST B");
+    if(value==="A")module.tests=["A"];else module.tests.push(value);
+    if(value==="A")module.meters=["BEARING","DRIVE"].includes(module.fault)?{VIBRATION:"HIGH",TEMPERATURE:"NORMAL",CURRENT:"NORMAL"}:{VIBRATION:"NORMAL",TEMPERATURE:"HIGH",CURRENT:"NORMAL"};
+    else if(value==="B")module.meters={VIBRATION:"HIGH",TEMPERATURE:"NORMAL",CURRENT:module.fault==="BEARING"?"LOW":"HIGH"};
+    else module.meters={VIBRATION:"NORMAL",TEMPERATURE:"HIGH",CURRENT:module.fault==="COOLING"?"HIGH":"LOW"};
+  }else if(module.id==="load_test"&&op==="select"){
+    if(!["BEARING","COOLING","SUPPLY","DRIVE"].includes(value))throw new Error("Repair selection is invalid");module.selected=value;
+  }else throw new Error("Module input is invalid");
+  module.feedback=op==="sample"?module.feedback:"";bump(session,`Act 4 module updated: ${payload.moduleId}`);
+}
+
+function resolveAct4Stop(session){
+  const run=session.fieldRun,locationId=run.route[run.currentIndex];
+  run.results.push({locationId,success:true,instruction:null,action:`repair_board_${run.currentIndex+1}`,knowledge:fieldKnowledge(session,locationId,true),at:Date.now()});
+  applyFieldServiceConsequence(session,locationId,true);bump(session,`${outsideLocation(locationId).name} six-module repair completed: RESTORED`);
+  session.clock={duration:run.repairAllowance,remaining:run.repairAllowance,running:false,endAt:null};run.instruction=null;
+  if(run.currentIndex===0){run.phase="resolved";run.nextIndex=1;run.transitionAt=Date.now()+ACT4_RESOLVED_MS;bump(session,`${outsideLocation(locationId).name} result displayed before travel resumes`);}
+  else{run.phase="returning";run.transitionAt=Date.now()+(locationId==="c"?ACT4_MARA_REVEAL_MS:ACT4_RETURN_MS);bump(session,"Both locked destinations resolved; runner returning to Blackout Ridge");}
+}
+
+function verifyAct4ModuleAction(session,viewer,moduleId){
+  const {run,boardNumber,board,module}=act4MutableModule(session,viewer,moduleId);
+  if(module.id==="switch_bank"&&!module.sampled){module.feedback="SAMPLE REQUIRED";bump(session,"Act 4 module rejected: SAMPLE required");return;}
+  const success=verifyAct4Module(module);module.feedback=success?"COMPLETE":"REJECTED / CHECK PROCEDURE";
+  if(success){module.completed=true;if(viewer.role)recordContribution(session,viewer.role,"serviceAttempts");}
+  else if(["three_buttons","route_controls","diagnostic_recovery","service_plate"].includes(module.id))module.queue=[];
+  bump(session,`Act 4 ${ACT4_MODULES[boardNumber].find(item=>item.id===module.id).title}: ${success?"COMPLETE":"REJECTED"}`);
+  if(Object.values(board.modules).every(item=>item.completed))resolveAct4Stop(session);
+}
+
+function markAct4ProcedureReady(session,viewer,moduleId){
+  const run=session.fieldRun;
+  if(session.stage!==4||session.stageStatus!=="live"||!run?.active||run.phase!=="service")throw new Error("No cabin procedure is active");
+  if(viewer.kind!=="player"||viewer.role===run.runner)throw new Error("Only an assigned cabin player can transmit procedure guidance");
+  const boardNumber=run.currentIndex+1,board=run.boards?.[boardNumber],assigned=board?.allocations?.[viewer.role]||[];
+  if(!assigned.includes(moduleId))throw new Error("This procedure is not assigned to your terminal");
+  board.readiness||={};board.readiness[viewer.role]||={};
+  if(board.readiness[viewer.role][moduleId])return;
+  board.readiness[viewer.role][moduleId]=Date.now();
+  recordContribution(session,viewer.role,"stationInstructions");
+  bump(session,`${roleName(session,viewer.role)} transmitted ${ACT4_MODULES[boardNumber].find(item=>item.id===moduleId)?.title||moduleId} guidance to the field runner`);
 }
 
 function applyFieldServiceConsequence(session,locationId,success){
@@ -908,6 +1175,9 @@ function fieldKnowledge(session,locationId,success){
 function submitFieldInstruction(session,viewer,instruction){
   const run=session.fieldRun;
   if(session.stage!==4||session.stageStatus!=="live"||!run?.active)throw new Error("No Outside Run is active");
+  if(session.act4Intro?.endsAt>Date.now())throw new Error("The field repair opens after the deployment sequence");
+  if(run.phase!=="service")throw new Error("The runner is still travelling to the field installation");
+  if(run.boards)throw new Error("Legacy field instructions are unavailable; complete all six production repair modules");
   if(viewer.kind!=="facilitator"&&viewer.role===run.runner)throw new Error("The runner must describe the installation; station crew must interpret it");
   if(run.instruction)throw new Error("The station instruction is already locked for this service");
   const locationId=run.route[run.currentIndex],game=FIELD_GAMES[locationId];
@@ -920,6 +1190,9 @@ function submitFieldInstruction(session,viewer,instruction){
 function submitFieldService(session,viewer,action){
   const run=session.fieldRun;
   if(session.stage!==4||session.stageStatus!=="live"||!run?.active)throw new Error("No Outside Run is active");
+  if(session.act4Intro?.endsAt>Date.now())throw new Error("The field repair opens after the deployment sequence");
+  if(run.phase!=="service")throw new Error("The runner is still travelling to the field installation");
+  if(run.boards)throw new Error("Legacy field actions are unavailable; complete all six production repair modules");
   if(viewer.kind!=="facilitator"&&viewer.role!==run.runner)throw new Error("Only the assigned runner can operate the field installation");
   if(!run.instruction)throw new Error("Wait for a station instruction before acting");
   const locationId=run.route[run.currentIndex],game=FIELD_GAMES[locationId];
@@ -929,19 +1202,27 @@ function submitFieldService(session,viewer,action){
   run.results.push(result);applyFieldServiceConsequence(session,locationId,success);
   if(viewer.role)recordContribution(session,viewer.role,"serviceAttempts");
   bump(session,`${outsideLocation(locationId).name} service completed: ${success?"RESTORED":"NOT RESTORED"}`);
-  if(run.currentIndex===0){run.currentIndex=1;run.instruction=null;run.phase="service";bump(session,`Runner travels to second locked target: ${outsideLocation(run.route[1]).name}`);}
-  else {run.active=false;run.phase="return";resolveStage(session,false);}
+  if(run.currentIndex===0){
+    run.instruction=null;run.phase="resolved";run.nextIndex=1;run.transitionAt=Date.now()+ACT4_RESOLVED_MS;
+    session.clock={duration:run.repairAllowance,remaining:run.repairAllowance,running:false,endAt:null};
+    bump(session,`${outsideLocation(locationId).name} result displayed before travel resumes`);
+  }
+  else {run.phase="returning";run.transitionAt=Date.now()+ACT4_RETURN_MS;session.clock={duration:run.repairAllowance,remaining:run.repairAllowance,running:false,endAt:null};bump(session,"Both locked destinations resolved; runner returning to Blackout Ridge");}
 }
 
 function expireFieldRun(session){
   const run=session.fieldRun;
   if(!run?.active)return;
-  for(let index=run.currentIndex;index<run.route.length;index++){
-    const locationId=run.route[index];
-    run.results.push({locationId,success:false,instruction:index===run.currentIndex?run.instruction?.id||null:null,action:null,knowledge:fieldKnowledge(session,locationId,false),at:Date.now(),expired:true});
-    applyFieldServiceConsequence(session,locationId,false);
+  const locationId=run.route[run.currentIndex];
+  run.results.push({locationId,success:false,instruction:run.instruction?.id||null,action:null,knowledge:fieldKnowledge(session,locationId,false),at:Date.now(),expired:true});
+  applyFieldServiceConsequence(session,locationId,false);
+  if(run.currentIndex===0){
+    run.instruction=null;run.phase="resolved";run.nextIndex=1;run.transitionAt=Date.now()+ACT4_RESOLVED_MS;
+    session.clock={duration:run.repairAllowance,remaining:run.repairAllowance,running:false,endAt:null};
+    bump(session,`${outsideLocation(locationId).name} repair window expired; NOT RESTORED result displayed before travel resumes`);
+    return;
   }
-  run.active=false;run.phase="return";resolveStage(session,true);
+  run.phase="returning";run.transitionAt=Date.now()+ACT4_RETURN_MS;session.clock={duration:run.repairAllowance,remaining:run.repairAllowance,running:false,endAt:null};bump(session,"Second repair expired; runner returning to Blackout Ridge");
 }
 
 function interventionMessage(session, role) {
@@ -966,7 +1247,8 @@ export function applyAction(session, viewer, type, payload = {}) {
   ensureSession(session);
   if(session.stage===1&&["CHAT_MESSAGE","REPORT","INTERVENTION"].includes(type))throw new Error("This action is unavailable during the evidence-only handover");
   if(viewer.kind==="player"&&session.absentRoles[viewer.role]&&type!=="CHAT_MESSAGE")throw new Error("This role is temporarily in observer mode");
-  if (type === "START_GAME" && viewer.kind === "facilitator" && session.stage === 0) { if(Object.keys(session.players).length!==session.playerCount)throw new Error(`Connect all ${session.playerCount} crew terminals before starting`);session.metrics.startedAt=Date.now();startStage(session, 1); }
+  if (type === "START_GAME" && viewer.kind === "facilitator" && session.stage === 0) { if(Object.keys(session.players).length!==session.playerCount)throw new Error(`Connect all ${session.playerCount} crew terminals before starting`);session.metrics.startedAt=Date.now();session.testMode=null;startStage(session, 1); }
+  else if(type==="START_ACT4_TEST"&&viewer.kind==="facilitator"&&session.stage===0)startAct4Test(session);
   else if (type === "ADVANCE_STAGE" && viewer.kind === "facilitator" && session.stageStatus === "resolved" && session.stage < 7) startStage(session, session.stage + 1);
   else if (type === "CHAT_MESSAGE" && (viewer.kind === "player" || viewer.kind === "facilitator")) {
     if(session.stage===7&&viewer.kind==="player"&&(session.finaleRun?.below.includes(viewer.role)||session.finaleRun?.phase==="surface"&&session.finaleRun.currentRole===viewer.role))throw new Error("Your finale communication channel is isolated");
@@ -1007,7 +1289,19 @@ export function applyAction(session, viewer, type, payload = {}) {
   else if(type==="UPDATE_SURFACE")updateSurface(session,viewer,payload);
   else if(type==="SUBMIT_SURFACE")commitSurface(session,viewer,false);
   else if(type==="CLASSIFY_MESSAGE")classifyMessage(session,viewer,String(payload.rating||""));
-  else if (type === "UPDATE_DRAFT" && canLead(session, viewer) && session.stageStatus === "live") { session.draft = validateDraftUpdate(session,payload); bump(session, "Crew plan updated"); }
+  else if (type === "UPDATE_DRAFT" && session.stageStatus === "live" && (canLead(session,viewer)||session.stage===3&&(viewer.kind==="facilitator"||viewer.kind==="player"))) { session.draft = validateDraftUpdate(session,payload); bump(session, session.stage===3?"Shared Act 3 deployment updated":"Crew plan updated"); }
+  else if(type==="ACT3_TRIGGER_VOICE")triggerImpossibleVoice(session,viewer);
+  else if(type==="ACT3_COMMIT_DEPLOYMENT")submitAct3Deployment(session,viewer);
+  else if(type==="ACT3_ASSIGN_RANDOM"&&viewer.kind==="facilitator")assignRandomAct3Deployment(session);
+  else if(type==="ACT3_NOMINATE_RUNNER")nominateAct3Runner(session,viewer,String(payload.runner||""));
+  else if(type==="FIELD_MODULE_INPUT")updateAct4Module(session,viewer,payload);
+  else if(type==="FIELD_MODULE_VERIFY")verifyAct4ModuleAction(session,viewer,String(payload.moduleId||""));
+  else if(type==="FIELD_PROCEDURE_READY")markAct4ProcedureReady(session,viewer,String(payload.moduleId||""));
+  else if(type==="FIELD_ADMIN_ADD_TIME"&&viewer.kind==="facilitator"){
+    const run=session.fieldRun,board=run?.currentIndex+1;if(session.stage!==4||session.stageStatus!=="live"||!run?.active||run.phase!=="service")throw new Error("No repair clock is active");
+    run.adminExtensions||={};if(run.adminExtensions[board])throw new Error("Recovery time has already been used for this repair");
+    run.adminExtensions[board]=true;const value=remaining(session.clock)+60;session.clock.remaining=value;session.clock.endAt=Date.now()+value*1000;bump(session,`Facilitator recovery control added 60 seconds to Repair Board ${board}`);
+  }
   else if(type==="FILL_REMAINING_REPAIRS"&&viewer.kind==="facilitator"&&session.stage===2&&session.repairRun?.phase==="dispatch")fillRemainingRepairs(session);
   else if(type==="DISPATCH_REPAIRS"&&viewer.kind==="facilitator"&&session.stage===2&&["planning","dispatch"].includes(session.repairRun?.phase)){
     if(session.repairRun.phase==="dispatch")fillRemainingRepairs(session);
@@ -1023,7 +1317,7 @@ export function applyAction(session, viewer, type, payload = {}) {
         refreshRepairTraffic(session,Date.now(),true);return resolveStage(session,false);
       }
     }
-    if (session.stage === 3) { const plan=outsidePlanPreview(session.draft);if(!plan.ready)throw new Error(plan.warnings[0]||"Complete a physically viable outside plan"); }
+    if (session.stage === 3) throw new Error("Use COMMIT DEPLOYMENT, then record the crew's runner nomination");
     if (session.stage === 4) {
       if (session.fieldRun?.active) throw new Error("The runner and station crew must complete both locked field services");
       if (!session.fieldRun) return beginFieldRun(session);
@@ -1043,6 +1337,14 @@ export function applyAction(session, viewer, type, payload = {}) {
   else if(type==="RESTART_ACT2" && viewer.kind==="facilitator" && session.stage===2 && session.stageStatus==="resolved") {
     delete session.outcomes[2];delete session.decisions[2];
     startStage(session,2);bump(session,"Act 2 restarted with the existing crew links");
+  }
+  else if(type==="RESTART_ACT3" && viewer.kind==="facilitator" && session.stage===3 && session.stageStatus==="resolved") {
+    delete session.outcomes[3];delete session.decisions[3];session.global.outsidePlan=null;
+    startStage(session,3);bump(session,"Act 3 restarted with the existing crew links");
+  }
+  else if(type==="RESTART_ACT4" && viewer.kind==="facilitator" && session.stage===4 && session.stageStatus==="resolved") {
+    delete session.outcomes[4];delete session.decisions[4];
+    startStage(session,4);bump(session,"Act 4 restarted with the existing crew links and locked Act 3 deployment");
   }
   else if(type==="SET_DEBRIEF_STEP" && viewer.kind==="facilitator" && session.status==="ending") { const step=Number(payload.step);if(!DEBRIEF_STEPS.some(item=>item.id===step))throw new Error("Debrief step is invalid");session.debrief.currentStep=step;bump(session,`Debrief advanced to step ${step}`); }
   else if(type==="SAVE_DEBRIEF_NOTE" && viewer.kind==="facilitator" && session.status==="ending") { const step=Number(payload.step),note=String(payload.note||"").trim().slice(0,1200);if(!DEBRIEF_STEPS.some(item=>item.id===step))throw new Error("Debrief step is invalid");session.debrief.notes[step]=note;bump(session,`Debrief note saved for step ${step}`); }
@@ -1091,11 +1393,27 @@ export function expireIfNeeded(session, now = Date.now()) {
   if(tickCabin(session,now))changed=true;
   if(refreshArchivePhase(session,now))changed=true;
   if(refreshFinalePurgeLock(session,now))changed=true;
+  if(session.stage===4&&session.stageStatus==="live"&&session.fieldRun?.active&&session.fieldRun.transitionAt<=now){
+    const run=session.fieldRun;
+    if(run.phase==="resolved"){
+      run.currentIndex=run.nextIndex;run.nextIndex=null;run.phase="travel";run.transitionAt=now+ACT4_TRAVEL_MS;
+      bump(session,`Runner continues to ${outsideLocation(run.route[run.currentIndex]).name}; repair board remains sealed during travel`);changed=true;
+    }else if(run.phase==="travel"){
+      run.phase="service";run.transitionAt=null;session.clock={duration:run.repairAllowance,remaining:run.repairAllowance,running:true,endAt:now+run.repairAllowance*1000};
+      bump(session,`${outsideLocation(run.route[run.currentIndex]).name} reached; Repair Board ${run.currentIndex+1} opened`);changed=true;
+    }else if(run.phase==="returning"){
+      run.active=false;run.transitionAt=null;resolveStage(session,run.results.some(result=>result.expired));changed=true;
+    }
+  }
   if (session.stageStatus === "live" && session.clock.running && session.clock.endAt <= now) {
     if(session.stage===2&&session.repairRun?.phase==="planning")closeRepairPlanning(session);
+    else if(session.stage===3&&session.act3Run?.phase==="planning"){
+      session.clock.remaining=0;session.clock.running=false;session.clock.endAt=null;session.act3Run.phase="final_call";session.act3Run.finalCall=true;
+      bump(session,"Act 3 planning time expired; immediate final call opened");
+    }
     else if(session.stage===7&&session.finaleRun?.phase==="transfer")completeFinaleTransfer(session,true,now);
     else if(session.stage===7&&session.finaleRun?.phase==="surface")commitSurface(session,{kind:"facilitator"},true);
-    else {if(session.stage===3&&!outsidePlanPreview(session.draft).ready)session.draft={plannedInbound:"c",plannedOutbound:"d",firstTarget:"c",equipment:["flood_kit","high_access"]};if(session.stage===4&&session.fieldRun?.active)return expireFieldRun(session),true;resolveStage(session,true);}
+    else {if(session.stage===4&&session.fieldRun?.active){if(session.fieldRun.phase!=="service")return changed;return expireFieldRun(session),true;}resolveStage(session,true);}
     return true;
   }
   return changed;
@@ -1129,13 +1447,23 @@ function contextualRoleCard(session, role) {
 function fieldRuntimeState(session,viewer){
   const run=session.fieldRun;if(!run)return null;
   const isRunner=viewer.kind==="player"&&viewer.role===run.runner;
-  return {...run,equipment:[...(run.equipment||[])],route:[...(run.route||[])],forecast:(run.forecast||[]).map(stop=>({...stop})),results:(run.results||[]).map(result=>({locationId:result.locationId,success:result.success,knowledge:[...(result.knowledge||[])],at:result.at,expired:Boolean(result.expired)})),instruction:run.instruction?(isRunner||viewer.kind==="public"?{received:true}:{...run.instruction}):null};
+  const {boards,...safe}=run,boardNumber=run.currentIndex+1,activeBoard=boards?.[boardNumber];
+  const progress=ACT4_MODULES[boardNumber]?.map(item=>({id:item.id,title:item.title,completed:Boolean(activeBoard?.modules?.[item.id]?.completed)}))||[];
+  return {...safe,equipment:[...(run.equipment||[])],route:[...(run.route||[])],forecast:(run.forecast||[]).map(stop=>({...stop})),results:(run.results||[]).map(result=>({locationId:result.locationId,success:result.success,knowledge:[...(result.knowledge||[])],at:result.at,expired:Boolean(result.expired)})),instruction:run.instruction?(isRunner||viewer.kind==="public"?{received:true}:{...run.instruction}):null,boardNumber,progress,allocation:viewer.kind==="facilitator"?structuredClone(activeBoard?.allocations||{}):undefined};
 }
 
 function fieldGameState(session,viewer){
   const run=session.fieldRun;if(session.stage!==4||!run?.active)return null;
+  if(session.act4Intro?.endsAt>Date.now()||run.phase!=="service")return null;
   const locationId=run.route[run.currentIndex],game=FIELD_GAMES[locationId],isRunner=viewer.kind==="player"&&viewer.role===run.runner;
   if(viewer.kind==="public")return null;
+  const boardNumber=run.currentIndex+1,board=run.boards?.[boardNumber];
+  if(board){
+    const readyModules=new Set(Object.values(board.readiness||{}).flatMap(items=>Object.keys(items)));
+    if(isRunner){const modules=structuredClone(board.modules);for(const module of Object.values(modules)){delete module.solution;delete module.test;if(module.id==="load_test")delete module.fault;module.guidanceReady=readyModules.has(module.id);const owner=Object.entries(board.allocations||{}).find(([,ids])=>ids.includes(module.id))?.[0];module.guidanceOwner=owner?{role:owner,name:session.players[owner]?.name||roleName(session,owner)}:null;}return {locationId,title:`REPAIR BOARD ${boardNumber}`,side:"runner",boardNumber,modules};}
+    if(viewer.kind==="player"){const assigned=board.allocations?.[viewer.role]||[],readiness=board.readiness?.[viewer.role]||{};return {locationId,title:`CABIN PROCEDURES / REPAIR ${boardNumber}`,side:"station",boardNumber,assigned,procedures:assigned.map(id=>({...act4Procedure(boardNumber,id),ready:Boolean(readiness[id])}))};}
+    if(viewer.kind==="facilitator")return {locationId,title:`FACILITATOR / REPAIR ${boardNumber}`,side:"facilitator",boardNumber,modules:structuredClone(board.modules),allocations:structuredClone(board.allocations),readiness:structuredClone(board.readiness||{})};
+  }
   if(isRunner)return {locationId,title:game.title,side:"runner",observation:game.observation,actions:game.actions.map(item=>[...item]),instructionReceived:Boolean(run.instruction)};
   if(viewer.kind==="player")return {locationId,title:game.title,side:"station",manual:game.manual.map(([condition,procedure,id])=>({condition,procedure,id})),instructionLocked:Boolean(run.instruction)};
   if(viewer.kind==="facilitator")return {locationId,title:game.title,side:"facilitator",observation:game.observation,actions:game.actions.map(item=>[...item]),manual:game.manual.map(([condition,procedure,id])=>({condition,procedure,id})),instructionLocked:Boolean(run.instruction),instructionReceived:Boolean(run.instruction)};
@@ -1149,10 +1477,12 @@ export function publicState(session, viewer) {
   const durationSeconds = session.metrics.startedAt ? Math.max(0,Math.round(((session.metrics.endedAt||Date.now())-session.metrics.startedAt)/1000)) : 0;
   return {
     code: session.code, revision: session.revision, playerCount: session.playerCount,
-    status: session.status, stage: session.stage, stageStatus: session.stageStatus,
-    clock: { ...session.clock, remaining: (session.stage===1&&session.act1Intro?.endsAt>Date.now())||(session.stage===2&&session.act2Intro?.endsAt>Date.now())?session.clock.duration:remaining(session.clock) }, safetyPaused: session.safetyPaused,
+    status: session.status, stage: session.stage, stageStatus: session.stageStatus, testMode:session.testMode?{...session.testMode}:null,
+    clock: { ...session.clock, remaining: (session.stage===1&&session.act1Intro?.endsAt>Date.now())||(session.stage===2&&session.act2Intro?.endsAt>Date.now())||(session.stage===3&&session.act3Intro?.endsAt>Date.now())||(session.stage===4&&session.act4Intro?.endsAt>Date.now())?session.clock.duration:remaining(session.clock) }, safetyPaused: session.safetyPaused,
     act1Intro: session.stage===1&&session.act1Intro?{...session.act1Intro}:null,
     act2Intro: session.stage===2&&session.act2Intro?{...session.act2Intro}:null,
+    act3Intro: session.stage===3&&session.act3Intro?{...session.act3Intro}:null,
+    act4Intro: session.stage===4&&session.act4Intro?{...session.act4Intro}:null,
     players: Object.fromEntries(Object.entries(session.players).map(([role, p]) => [role, { role, name: p.name, joinedAt: p.joinedAt }])),
     reports: viewer.kind === "facilitator" || viewer.role === "lead"
       ? session.reports
@@ -1174,6 +1504,11 @@ export function publicState(session, viewer) {
     finale: session.stage===7 ? finalePublicState(session,viewer) : null,
     communications: derivedCommunications(session),
     repairRun: session.repairRun ? { phase:session.repairRun.phase, attempts:session.repairRun.attempts, personnelLevel:session.repairRun.personnelLevel||0, available:[...session.repairRun.available], assignments:{...session.repairRun.assignments}, assignmentMethod:{...session.repairRun.assignmentMethod}, results:Object.fromEntries(Object.entries(session.repairRun.results).map(([role,result])=>[role,{systemId:result.systemId,success:result.success,at:result.at,confirmedAt:result.confirmedAt}])), traffic:session.repairRun.traffic.map(item=>({...item})) } : null,
+    act3Run: session.stage===3&&session.act3Run ? { phase:session.act3Run.phase,impossibleVoicePlayed:session.act3Run.impossibleVoicePlayed,impossibleVoiceAt:session.act3Run.impossibleVoiceAt,finalCall:session.act3Run.finalCall,resolution:session.act3Run.resolution?{mode:session.act3Run.resolution.mode,allowance:session.act3Run.resolution.allowance,confirmed:{...session.act3Run.resolution.confirmed,FIELD_EQUIPMENT:[...(session.act3Run.resolution.confirmed.FIELD_EQUIPMENT||[])]}}:null } : null,
+    act3Systems: session.stage===3 ? ACT2_SYSTEMS.map(system=>{
+      const forced={lower_road_camera:"lower_road_camera_history",inbound_receive:"external_inbound",human_outbound:"external_human_outbound",ventilation_control:"ventilation_path"}[system.id];
+      return {id:system.id,panelId:system.panelId,name:system.name,state:forced&&session.global.externalStatus[forced]==="offline"?"offline":session.global.systemStatus[system.id]==="working"?"working":"fault"};
+    }) : undefined,
     preStrikeArchive: session.stage>=2 ? PRE_STRIKE_ARCHIVE.map(item=>({...item})) : [],
     repairSystems: session.stage===2 ? ACT2_SYSTEMS.map(system=>({id:system.id,panelId:system.panelId,name:system.name,manual:system.manual,selectable:system.selectable,state:session.global.systemStatus[system.id]})).sort((a,b)=>REPAIR_PRESENTATION_ORDER.indexOf(a.id)-REPAIR_PRESENTATION_ORDER.indexOf(b.id)) : undefined,
     repairAssignment: viewer.kind==="player"&&session.stage===2&&session.repairRun?.phase==="repair" ? session.repairRun.assignments[viewer.role]||null : null,
@@ -1190,8 +1525,9 @@ export function publicState(session, viewer) {
     privateCard: viewer.kind === "player" && session.stage ? contextualRoleCard(session, viewer.role) : null,
     informationJoins: viewer.kind === "facilitator" ? INFORMATION_JOINS : undefined,
     roles: rolesForCount(session.playerCount), actions: ACTIONS,
-    outsideLocations: session.stage===3 ? OUTSIDE_LOCATIONS.map(({id,name,travel,service,concentration,rise,transfer})=>({id,name,travel,service,concentration,rise,transfer:{...transfer}})) : undefined,
-    fieldEquipment: session.stage===3 ? FIELD_EQUIPMENT.map(item=>[...item]) : undefined,
+    outsideLocations: session.stage===3 ? ACT3_LOCATIONS.map(location=>({...location,toolOptions:[...location.toolOptions]})) : undefined,
+    act3RepairTools: session.stage===3 ? ACT3_REPAIR_TOOLS.map(item=>[...item]) : undefined,
+    act3SupportItems: session.stage===3 ? ACT3_SUPPORT_ITEMS.map(item=>[...item]) : undefined,
     facilitatorCanAdvance: viewer.kind === "facilitator" && session.stageStatus === "resolved" && session.stage < 7,
     facilitatorCanConfirmEnding: viewer.kind==="facilitator"&&session.stage===7&&session.stageStatus==="resolved"&&Boolean(session.pendingEnding),
   };

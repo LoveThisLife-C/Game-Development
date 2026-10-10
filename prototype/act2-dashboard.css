@@ -36,6 +36,7 @@
 }
 .station-dashboard .sdb-text { display: flex; align-items: center; justify-content: center; text-align: center; }
 .station-dashboard .sdb-fault { color: #ffc62e; font-size: 1cqw; }
+.station-dashboard .sdb-offline { color:#ff5450;font-size:1.05cqw;text-shadow:0 0 .45cqw rgba(255,55,48,.58); }
 .station-dashboard .sdb-good { color: #63efc4; }
 .station-dashboard .sdb-official { display: flex; align-items: center; gap: .65cqw; white-space: nowrap; font-size: 1.25cqw; }
 .station-dashboard .sdb-official strong { color: #63efc4; font: inherit; }
@@ -53,8 +54,11 @@
   box-shadow: 0 0 .33cqw #ffa91c, 0 0 .65cqw #ffa91c66;
 }
 .station-dashboard .sdb-lamp.working { background: radial-gradient(circle at 40% 35%,#fff 0 10%,#8affba 25%,#35e967 50%,#00491a 75%); box-shadow: 0 0 .33cqw #42f46e,0 0 .65cqw #42f46e66; }
+.station-dashboard .sdb-lamp.offline { background:radial-gradient(circle at 40% 35%,#fff 0 9%,#ff7d72 24%,#f23831 51%,#4f0504 76%);box-shadow:0 0 .33cqw #ff413a,0 0 .75cqw #ff302a88; }
 .station-dashboard .sdb-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .station-dashboard .sdb-camera span,.station-dashboard .sdb-camera b { position: absolute; left: 1.5%; font: 400 1.1cqw/1 "Blackout Display",sans-serif; }
+.station-dashboard .sdb-camera-offline{display:grid;place-items:center;background:linear-gradient(rgba(35,0,0,.42),rgba(0,4,5,.92)),url('./assets/images/act2/act2-lower-road-camera-feed-v1.webp') center/cover;filter:saturate(.28)}
+.station-dashboard .sdb-camera-offline strong{color:#ff4e49;font:700 4.2cqw/1 "Blackout Display",sans-serif;text-shadow:0 0 1.1cqw rgba(255,45,37,.72)}
 .station-dashboard .sdb-camera span { top: 2%; }
 .station-dashboard .sdb-camera b { bottom: 2%; }
 .station-dashboard .sdb-log-cell { justify-content: flex-start; text-align: left; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.435cqw; font-size: .94cqw; }

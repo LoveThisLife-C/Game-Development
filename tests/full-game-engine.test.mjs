@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 
 import {
   addPlayer,
+  act3PlanPreview,
   applyAction,
   authorize,
   createSession,
@@ -11,6 +12,7 @@ import {
   outsidePlanPreview,
   publicState,
 } from "../server/game-engine.js";
+import {createAct4Board} from "../server/act4-content.js";
 import {
   ACT1_EVIDENCE_SCREENS,
   ACT1_TRANSMISSIONS,
@@ -48,19 +50,49 @@ function update(session, payload) {
 }
 
 const completeOutsidePlan = (session, overrides = {}) => update(session, {
-  plannedInbound: "a",
-  plannedOutbound: "b",
-  firstTarget: "a",
-  equipment: ["gas_mask", "service_toolkit"],
+  firstLocation:"a",
+  secondLocation:"b",
+  tool1:"signal_meter",
+  tool2:"insulated_driver",
+  supportItem:"emergency_filter",
+  filterUse:111,
   ...overrides,
 });
-const fieldSolutions={a:["vent_turn","vent_turn_reseat"],b:["isolate_dark","isolate_blue_bridge"],c:["drain_north","north_lower_upper"],d:["equalise_bypass","bypass_discharge_close"]};
+function finishAct4Opening(session){
+  if(!session.act4Intro)return;
+  session.act4Intro.endsAt=0;
+  if(session.fieldRun?.phase==="travel")session.fieldRun.transitionAt=0;
+  expireIfNeeded(session);
+  session.clock.endAt=Date.now()+session.clock.duration*1000;
+}
 function completeActiveFieldRun(session,{fail=[]}={}){
+  finishAct4Opening(session);
   while(session.stage===4&&session.fieldRun?.active){
-    const id=session.fieldRun.route[session.fieldRun.currentIndex],[instruction,action]=fieldSolutions[id];
-    applyAction(session,facilitator,"FIELD_INSTRUCTION",{instruction:fail.includes(id)?"ground_braid":instruction});
-    applyAction(session,facilitator,"FIELD_SERVICE",{action});
+    if(session.fieldRun.phase!=="service"){session.fieldRun.transitionAt=0;expireIfNeeded(session);continue;}
+    const id=session.fieldRun.route[session.fieldRun.currentIndex];
+    if(fail.includes(id)){session.clock.endAt=Date.now()-1;expireIfNeeded(session);continue;}
+    if(session.fieldRun.currentIndex===0)completeAct4Board1(session);else completeAct4Board2(session);
   }
+}
+
+const act4Input=(session,moduleId,op,value,extra={})=>applyAction(session,facilitator,"FIELD_MODULE_INPUT",{moduleId,op,value,...extra});
+const act4Verify=(session,moduleId)=>applyAction(session,facilitator,"FIELD_MODULE_VERIFY",{moduleId});
+function completeAct4Board1(session){
+  for(const value of [2,0,1,1,0,2,1,0])act4Input(session,"three_buttons","append",value);act4Verify(session,"three_buttons");
+  for(const value of ["right","right","down","down","right","down","right","right"])act4Input(session,"route_controls","append",value);act4Verify(session,"route_controls");
+  [6,4,5].forEach((value,index)=>act4Input(session,"calibration_dials","set",value,{index}));act4Verify(session,"calibration_dials");
+  for(const [source,target] of Object.entries({PWR:"CTRL-A",DATA:"AUX-D",CTRL:"PWR-B",AUX:"DATA-C"})){act4Input(session,"patch_matrix","select_source",source);act4Input(session,"patch_matrix","connect",undefined,{target});}act4Verify(session,"patch_matrix");
+  for(const index of [0,2,5])act4Input(session,"switch_bank","toggle",index,{index});act4Input(session,"switch_bank","sample");act4Input(session,"switch_bank","toggle",2,{index:2});act4Verify(session,"switch_bank");
+  for(const value of ["RESET","CONFIRM","CONFIRM","RESET","CONFIRM","CONFIRM","RESET","CONFIRM"])act4Input(session,"diagnostic_recovery","append",value);act4Verify(session,"diagnostic_recovery");
+}
+function completeAct4Board2(session){
+  [7,3,5,9].forEach((value,index)=>act4Input(session,"level_sliders","set",value,{index}));act4Verify(session,"level_sliders");
+  [1,5,8,7].forEach((value,index)=>act4Input(session,"alignment_discs","set",value,{index}));act4Verify(session,"alignment_discs");
+  act4Input(session,"component_order","select",0,{index:0});act4Input(session,"component_order","select",1,{index:1});act4Verify(session,"component_order");
+  for(const value of [0,3,7,4,5,1,2,6])act4Input(session,"service_plate","append",value);act4Verify(session,"service_plate");
+  for(const [circuit,fuse] of Object.entries({PUMP:"15A_DELAY",HEATER:"20A_FAST",COMMS:"15A_FAST",FAN:"10A_DELAY"})){act4Input(session,"fuse_allocation","select",fuse);act4Input(session,"fuse_allocation","assign",undefined,{target:circuit});}act4Verify(session,"fuse_allocation");
+  const fault=session.fieldRun.boards[2].modules.load_test.fault,followUp=["BEARING","DRIVE"].includes(fault)?"B":"C";
+  act4Input(session,"load_test","test","A");act4Input(session,"load_test","test","A");act4Input(session,"load_test","test",followUp);act4Input(session,"load_test","test",followUp);act4Input(session,"load_test","select",fault);act4Verify(session,"load_test");
 }
 
 const completeHandover = (session, overrides = {}) => update(session, {
@@ -121,6 +153,12 @@ function commitAndAdvance(session) {
     if(session.stageStatus==="resolved")applyAction(session,facilitator,"ADVANCE_STAGE");
     return;
   }
+  if(session.stage===3){
+    applyAction(session,facilitator,"ACT3_COMMIT_DEPLOYMENT");
+    applyAction(session,facilitator,"ACT3_NOMINATE_RUNNER",{runner:"operations"});
+    applyAction(session,facilitator,"ADVANCE_STAGE");
+    return;
+  }
   applyAction(session, facilitator, "COMMIT_STAGE");
   if (session.stage === 4 && session.fieldRun?.active) completeActiveFieldRun(session);
   if (session.stage < 7 && session.stageStatus === "resolved") applyAction(session, facilitator, "ADVANCE_STAGE");
@@ -162,7 +200,10 @@ test("complete strong path reaches Clean Rescue after the Lark investigation", (
 
   completeOutsidePlan(session);
   commitAndAdvance(session);
-  assert.deepEqual(session.decisions[3], {PLANNED_INBOUND_LOCATION:"a",PLANNED_OUTBOUND_LOCATION:"b",RUNNER_FIRST_TARGET:"a",FIELD_EQUIPMENT:["gas_mask","service_toolkit"]});
+  assert.equal(session.decisions[3].FIRST_LOCATION,"a");
+  assert.equal(session.decisions[3].SECOND_LOCATION,"b");
+  assert.equal(session.decisions[3].REPAIR_ALLOWANCE,360);
+  assert.equal(session.decisions[3].RUNNER,"operations");
 
   update(session, { runner: "operations" });
   commitAndAdvance(session);
@@ -445,6 +486,14 @@ test("Act 2 timeouts move planning forward and close unfinished repairs without 
   assert.match(session.outcomes[2].decision,/0 submitted before timeout/i);
 });
 
+test("Act 2 advisories carry the revised Act 3 respiratory context", () => {
+  const session=createSession({code:"A3AIR1",playerCount:4});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  const rated=session.repairRun.traffic.find(item=>item.ref==="COMM-04A"),severe=session.repairRun.traffic.find(item=>item.ref==="COMM-04B");
+  assert.match(rated.text,/thirty-three minutes/i);assert.doesNotMatch(rated.text,/thirty-five/i);
+  assert.match(severe.text,/twenty minutes/i);assert.match(severe.text,/standard thirty-three/i);assert.doesNotMatch(severe.text,/twenty-two/i);
+});
+
 test("facilitator can restart resolved Act 2 with the same crew links", () => {
   const session=createSession({code:"ACT2RT",playerCount:4});connectCrew(session);startShift(session);
   completeHandover(session);commitAndAdvance(session);
@@ -469,18 +518,25 @@ test("both credible alternative repairs genuinely succeed", () => {
   assert.equal(session.global.systemStatus.fire_suppression,"working");
 });
 
-test("production Act 3 implements the specified outside-plan feasibility matrix", () => {
-  const plan=(plannedInbound,plannedOutbound,firstTarget,equipment)=>outsidePlanPreview({plannedInbound,plannedOutbound,firstTarget,equipment});
-  for(const firstTarget of ["a","b"])assert.equal(plan("a","b",firstTarget,["gas_mask","service_toolkit"]).ready,true);
-  for(const firstTarget of ["a","c"])assert.equal(plan("a","c",firstTarget,["gas_mask","flood_kit"]).ready,true);
-  for(const firstTarget of ["a","d"])assert.equal(plan("a","d",firstTarget,["gas_mask","high_access"]).ready,true);
-  for(const firstTarget of ["b","c"])assert.equal(plan("b","c",firstTarget,["gas_mask","service_toolkit"]).ready,false);
-  for(const firstTarget of ["b","d"])assert.equal(plan("b","d",firstTarget,["gas_mask","service_toolkit"]).ready,false);
-  assert.equal(plan("c","d","c",["flood_kit","high_access"]).ready,true);
-  const reverse=plan("c","d","d",["flood_kit","high_access"]);
-  assert.equal(reverse.ready,false);
-  assert.ok(reverse.required.includes("gas_mask"));
-  assert.equal(reverse.stops.find(stop=>stop.id==="c").ppm>=18,true);
+test("production Act 3 implements the six-deployment answer key", () => {
+  const plans=[
+    ["a","b","signal_meter","signal_meter","emergency_filter",111],
+    ["b","a","insulated_driver","signal_meter","emergency_filter",111],
+    ["c","a","valve_wrench","signal_meter","flood_kit",99],
+    ["c","b","valve_wrench","insulated_driver","flood_kit",98],
+    ["d","a","torque_wrench","signal_meter","climbing_kit",87],
+    ["d","b","torque_wrench","insulated_driver","climbing_kit",87],
+  ];
+  for(const [firstLocation,secondLocation,tool1,tool2,supportItem,filterUse] of plans){
+    const preview=act3PlanPreview({firstLocation,secondLocation,tool1,tool2,supportItem,filterUse});
+    assert.equal(preview.exact,true,`${firstLocation}>${secondLocation} should match the handoff answer key`);
+    assert.equal(preview.canonical.tool1,tool1,"a valid alternate first tool must be preserved");
+    assert.equal(preview.canonical.tool2,tool2,"a valid alternate second tool must be preserved");
+  }
+  const reversed=act3PlanPreview({firstLocation:"a",secondLocation:"c",tool1:"signal_meter",tool2:"valve_wrench",supportItem:"flood_kit",filterUse:96});
+  assert.equal(reversed.submittable,true);assert.equal(reversed.exact,false);assert.equal(reversed.canonical.first,"c");assert.equal(reversed.canonical.filterUse,99);
+  const conflict=act3PlanPreview({firstLocation:"c",secondLocation:"d",tool1:"valve_wrench",tool2:"torque_wrench",supportItem:"flood_kit",filterUse:105});
+  assert.equal(conflict.submittable,false);assert.match(conflict.errors.join(" "),/different specialist support items/i);
 });
 
 test("Act 3 exposes separate red field outages and accepts only a practical facilitator plan", () => {
@@ -488,23 +544,118 @@ test("Act 3 exposes separate red field outages and accepts only a practical faci
   completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
   assert.equal(session.stage,3);
   assert.equal(STAGES[3].mechanic,"outside_plan");
-  assert.equal(STAGES[3].duration,420);
+  assert.equal(STAGES[3].duration,480);
   assert.deepEqual(Object.values(session.global.externalStatus),["offline","offline","offline","offline"]);
   assert.equal(session.global.systemStatus.tower_monitoring,"working");
   const lead=authorize(session,session.players.lead.token);
-  assert.throws(()=>applyAction(session,lead,"UPDATE_DRAFT",{plannedInbound:"a"}),/not available/);
-  update(session,{plannedInbound:"a",plannedOutbound:"a",firstTarget:"a",equipment:["gas_mask","service_toolkit"]});
-  assert.throws(()=>applyAction(session,facilitator,"COMMIT_STAGE"),/two different service locations/);
+  applyAction(session,lead,"UPDATE_DRAFT",{firstLocation:"a"});
+  update(session,{secondLocation:"a",tool1:"signal_meter",tool2:"signal_meter",supportItem:"emergency_filter",filterUse:111});
+  assert.throws(()=>applyAction(session,lead,"ACT3_COMMIT_DEPLOYMENT"),/only the facilitator/i);
+  assert.throws(()=>applyAction(session,facilitator,"ACT3_COMMIT_DEPLOYMENT"),/different locations/i);
   completeOutsidePlan(session);
   const preview=publicState(session,{kind:"public"}).decisionPreview;
   const publicLocations=publicState(session,{kind:"public"}).outsideLocations;
   assert.equal(publicLocations.some(location=>"requirement" in location||"serviceNote" in location),false);
   assert.equal(preview.ready,true);
-  assert.match(preview.footer,/physical feasibility only/i);
-  assert.doesNotMatch(JSON.stringify(preview),/correct|incorrect|right location|wrong location/i);
+  assert.doesNotMatch(preview.costs.join(" "),/46.*45.*20.*111/);
+  assert.match(preview.costs.join(" "),/calculate all three stages/i);
+  assert.match(preview.footer,/six minutes per Act 4 repair/i);
+  applyAction(session,facilitator,"ACT3_COMMIT_DEPLOYMENT");
+  assert.equal(session.act3Run.impossibleVoicePlayed,true,"an early submission must still deliver the one-time voice");
+  assert.equal(session.act3Run.resolution.mode,"correct");
+  applyAction(session,facilitator,"ACT3_NOMINATE_RUNNER",{runner:"operations"});
+  assert.match(session.outcomes[3].detail,/6 minutes for each repair/i);
+  assert.equal(session.decisions[3].FIRST_LOCATION,"a");assert.equal(session.decisions[3].REPAIR_ALLOWANCE,360);
+});
+
+test("Act 3 corrects a viable imperfect plan once and applies the five-minute allowance", () => {
+  const session=createSession({code:"A3FIX1",playerCount:4});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  completeOutsidePlan(session,{firstLocation:"a",secondLocation:"c",tool1:"torque_wrench",tool2:"signal_meter",supportItem:"flood_kit",filterUse:96});
+  applyAction(session,facilitator,"ACT3_COMMIT_DEPLOYMENT");
+  assert.equal(session.act3Run.resolution.mode,"corrected");
+  assert.equal(session.global.outsidePlan.FIRST_LOCATION,"c");
+  assert.equal(session.global.outsidePlan.SECOND_LOCATION,"a");
+  assert.equal(session.global.outsidePlan.REPAIR_TOOL_1,"valve_wrench");
+  assert.equal(session.global.outsidePlan.REPAIR_TOOL_2,"signal_meter");
+  assert.equal(session.global.outsidePlan.FILTER_USE,99);
+  assert.equal(session.global.outsidePlan.REPAIR_ALLOWANCE,300);
+  const resolvedPreview=publicState(session,{kind:"public"}).decisionPreview;
+  assert.match(resolvedPreview.summary,/deployment corrected/i);
+  assert.match(resolvedPreview.keeps.join(" "),/CAM-01 → RX-01/);
+  assert.match(resolvedPreview.costs.join(" "),/5 minutes per Act 4 repair/i);
+  applyAction(session,facilitator,"ACT3_NOMINATE_RUNNER",{runner:"operations"});
+  applyAction(session,facilitator,"ADVANCE_STAGE");
+  assert.equal(session.draft.runner,"operations");
   applyAction(session,facilitator,"COMMIT_STAGE");
-  assert.match(session.outcomes[3].detail,/physically serviceable.*unscored/i);
-  assert.deepEqual(Object.keys(session.decisions[3]).sort(),["FIELD_EQUIPMENT","PLANNED_INBOUND_LOCATION","PLANNED_OUTBOUND_LOCATION","RUNNER_FIRST_TARGET"].sort());
+  assert.equal(session.clock.duration,300,"the corrected Act 3 allowance must control each Act 4 repair window");
+});
+
+test("facilitator can restart resolved Act 3 with the same crew links", () => {
+  const session=createSession({code:"ACT3RT",playerCount:4});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  const tokens=Object.fromEntries(Object.entries(session.players).map(([role,player])=>[role,player.token]));
+  completeOutsidePlan(session,{firstLocation:"a",secondLocation:"b",tool1:"signal_meter",tool2:"insulated_driver",supportItem:"emergency_filter",filterUse:111});
+  applyAction(session,facilitator,"ACT3_COMMIT_DEPLOYMENT");applyAction(session,facilitator,"ACT3_NOMINATE_RUNNER",{runner:"operations"});
+  assert.equal(session.stageStatus,"resolved");assert.ok(session.global.outsidePlan);
+  applyAction(session,facilitator,"RESTART_ACT3");
+  assert.equal(session.stage,3);assert.equal(session.stageStatus,"live");assert.equal(session.act3Run.phase,"planning");
+  assert.equal(session.clock.duration,480);assert.equal(session.global.outsidePlan,null);
+  assert.equal(session.outcomes[3],undefined);assert.equal(session.decisions[3],undefined);
+  assert.deepEqual(Object.fromEntries(Object.entries(session.players).map(([role,player])=>[role,player.token])),tokens);
+});
+
+test("Act 3 timeout opens a final call and random assignment remains valid", () => {
+  const session=createSession({code:"A3TIME",playerCount:4});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  session.clock.endAt=10;
+  assert.equal(expireIfNeeded(session,11),true);
+  assert.equal(session.act3Run.phase,"final_call");
+  assert.equal(session.stageStatus,"live");
+  assert.equal(session.global.outsidePlan,null);
+  applyAction(session,facilitator,"ACT3_ASSIGN_RANDOM");
+  assert.equal(session.act3Run.resolution.mode,"random");
+  assert.equal(session.global.outsidePlan.REPAIR_ALLOWANCE,300);
+  const locked=act3PlanPreview({
+    firstLocation:session.global.outsidePlan.FIRST_LOCATION,
+    secondLocation:session.global.outsidePlan.SECOND_LOCATION,
+    tool1:session.global.outsidePlan.REPAIR_TOOL_1,
+    tool2:session.global.outsidePlan.REPAIR_TOOL_2,
+    supportItem:session.global.outsidePlan.SUPPORT_ITEM,
+    filterUse:session.global.outsidePlan.FILTER_USE,
+  });
+  assert.equal(locked.exact,true);
+});
+
+test("Act 3 final-call CAM-01 plus AUX-01 conflict becomes a random valid deployment", () => {
+  const session=createSession({code:"A3CALL",playerCount:4});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  update(session,{firstLocation:"c",secondLocation:"d",tool1:"valve_wrench",tool2:"torque_wrench",supportItem:"flood_kit",filterUse:105});
+  session.clock.endAt=10;assert.equal(expireIfNeeded(session,11),true);
+  applyAction(session,facilitator,"ACT3_COMMIT_DEPLOYMENT");
+  assert.equal(session.act3Run.resolution.mode,"random");assert.equal(session.global.outsidePlan.REPAIR_ALLOWANCE,300);
+  assert.equal(new Set([session.global.outsidePlan.FIRST_LOCATION,session.global.outsidePlan.SECOND_LOCATION]).has("c")&&new Set([session.global.outsidePlan.FIRST_LOCATION,session.global.outsidePlan.SECOND_LOCATION]).has("d"),false);
+});
+
+test("Act 3 keeps every authority action facilitator-only while players edit the shared draft", () => {
+  const session=createSession({code:"A3AUTH",playerCount:4});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  const player=authorize(session,session.players.lead.token);
+  applyAction(session,player,"UPDATE_DRAFT",{firstLocation:"a"});
+  assert.equal(session.draft.firstLocation,"a","players retain collaborative draft editing");
+  completeOutsidePlan(session);
+  assert.throws(()=>applyAction(session,player,"ACT3_TRIGGER_VOICE"),/facilitator/i);
+  assert.throws(()=>applyAction(session,player,"ACT3_COMMIT_DEPLOYMENT"),/only the facilitator/i);
+  session.clock.endAt=10;assert.equal(expireIfNeeded(session,11),true);
+  assert.equal(session.act3Run.phase,"final_call");
+  assert.throws(()=>applyAction(session,player,"ACT3_ASSIGN_RANDOM"),/not available/i);
+  applyAction(session,facilitator,"ACT3_ASSIGN_RANDOM");
+  assert.equal(session.act3Run.phase,"runner");
+  assert.throws(()=>applyAction(session,player,"ACT3_NOMINATE_RUNNER",{runner:"lead"}),/facilitator/i);
+  applyAction(session,facilitator,"ACT3_NOMINATE_RUNNER",{runner:"lead"});
+  assert.equal(session.stageStatus,"resolved");
+  assert.throws(()=>applyAction(session,player,"ADVANCE_STAGE"),/not available/i);
+  assert.throws(()=>applyAction(session,player,"RESTART_ACT3"),/not available/i);
 });
 
 test("Act 3 private evidence responds to Tower Monitoring and the exact local traffic record", () => {
@@ -531,7 +682,7 @@ test("weak decisions still fail forward through every stage", () => {
 
   completeHandover(session, { ellie: "no", mara: "yes" }); commitAndAdvance(session);
   completeRepairStage(session, { fail: session.repairRun.available.slice(0, 6) });
-  completeOutsidePlan(session,{plannedInbound:"c",plannedOutbound:"d",firstTarget:"c",equipment:["flood_kit","high_access"]}); commitAndAdvance(session);
+  completeOutsidePlan(session); commitAndAdvance(session);
   update(session, { runner:"operations" }); commitAndAdvance(session);
   commitAndAdvance(session);
   commitAndAdvance(session);
@@ -686,7 +837,7 @@ test("role intervention is limited to once per session", () => {
   assert.throws(() => applyAction(session, viewer, "INTERVENTION"), /not available/);
 });
 
-test("Outside Run keeps the Act 3 mission locked and resolves two asymmetric one-shot services", () => {
+test("Outside Run keeps the Act 3 mission locked and cannot bypass either six-module repair board", () => {
   const session = createSession({ code: "FIELD1", playerCount: 7 });
   const operations = addPlayer(session, { name: "Omar", role: "operations" });
   const signal = addPlayer(session, { name: "Sia", role: "signal" });
@@ -698,34 +849,121 @@ test("Outside Run keeps the Act 3 mission locked and resolves two asymmetric one
   update(session, { runner: "operations" });
   assert.throws(()=>update(session,{destination:"c"}),/route and equipment are locked/i);
   applyAction(session, facilitator, "COMMIT_STAGE");
+  assert.ok(session.act4Intro.endsAt-session.act4Intro.startedAt>=40_000,"four-part opening must sit outside the repair clock");
+  assert.equal(session.clock.running,false,"opening and atmospheric travel must sit outside the repair clock");
+  assert.ok(session.fieldRun.transitionAt>session.act4Intro.endsAt);
+  assert.throws(()=>applyAction(session,authorize(session,signal.token),"FIELD_INSTRUCTION",{instruction:"vent_turn"}),/after the deployment sequence/i);
+  finishAct4Opening(session);
   assert.deepEqual(session.fieldRun.route,["a","b"]);
   const runnerState=publicState(session,authorize(session,operations.token));
   const stationState=publicState(session,authorize(session,signal.token));
   const sharedState=publicState(session,{kind:"public"});
-  assert.match(runnerState.fieldGame.observation,/RETURN needle/);
-  assert.equal(runnerState.fieldGame.manual,undefined);
-  assert.equal(stationState.fieldGame.observation,undefined);
-  assert.equal(stationState.fieldGame.manual.length,3);
+  assert.equal(Object.keys(runnerState.fieldGame.modules).length,6);
+  assert.equal(runnerState.fieldGame.procedures,undefined);
+  assert.equal(stationState.fieldGame.modules,undefined);
+  assert.ok(stationState.fieldGame.procedures.length>=1);
   assert.equal(sharedState.fieldGame,null);
   assert.equal(runnerState.environment.airMeterPpm,runnerState.fieldRun.forecast[0].ppm,"Act 4 must display the locked Act 3 service-point forecast as current reality");
   assert.equal(runnerState.environment.fieldStop.id,"a");
-  assert.notEqual(runnerState.fieldGame.actions[0][1],FIELD_GAMES.a.manual[0][1],"runner controls should require translation from station terminology");
-  assert.throws(()=>applyAction(session,authorize(session,operations.token),"FIELD_INSTRUCTION",{instruction:"vent_turn"}),/station crew/);
-  assert.throws(()=>applyAction(session,authorize(session,operations.token),"FIELD_SERVICE",{action:"vent_turn_reseat"}),/Wait for a station instruction/);
-  applyAction(session,authorize(session,signal.token),"FIELD_INSTRUCTION",{instruction:"vent_turn"});
-  assert.throws(()=>applyAction(session,authorize(session,signal.token),"FIELD_INSTRUCTION",{instruction:"vent_turn"}),/already locked/);
-  applyAction(session,authorize(session,operations.token),"FIELD_SERVICE",{action:"vent_turn_reseat"});
-  assert.equal(session.fieldRun.currentIndex,1);
-  applyAction(session,authorize(session,signal.token),"FIELD_INSTRUCTION",{instruction:"isolate_dark"});
-  applyAction(session,authorize(session,operations.token),"FIELD_SERVICE",{action:"isolate_blue_bridge"});
+  assert.throws(()=>applyAction(session,authorize(session,signal.token),"FIELD_INSTRUCTION",{instruction:"vent_turn"}),/six production repair modules/i);
+  assert.throws(()=>applyAction(session,authorize(session,operations.token),"FIELD_SERVICE",{action:"vent_turn_reseat"}),/six production repair modules/i);
+  completeAct4Board1(session);
+  assert.equal(session.fieldRun.phase,"resolved");assert.equal(session.fieldRun.currentIndex,0);
+  session.fieldRun.transitionAt=0;expireIfNeeded(session);assert.equal(session.fieldRun.phase,"travel");assert.equal(session.fieldRun.currentIndex,1);
+  session.fieldRun.transitionAt=0;expireIfNeeded(session);assert.equal(session.fieldRun.phase,"service");
+  completeAct4Board2(session);
+  assert.equal(session.fieldRun.phase,"returning");session.fieldRun.transitionAt=0;expireIfNeeded(session);
   assert.equal(session.stageStatus, "resolved");
-  assert.equal(session.metrics.contributions.signal.stationInstructions,2);
-  assert.equal(session.metrics.contributions.operations.serviceAttempts,2);
   assert.deepEqual(session.global.fieldServices,{external_inbound_path:"restored",external_outbound_path:"restored",lower_road_camera_service:"not_restored",upper_ridge_service:"not_restored"});
   assert.equal(publicState(session,facilitator).communications.inbound,"FULL");
   assert.equal(publicState(session,facilitator).communications.outbound,"FULL");
   assert.deepEqual(session.decisions[4].route,["a","b"]);
   assert.equal(session.decisions[4].results.length,2);
+});
+
+test("Act 4 production boards verify all twelve modules, retry safely, and preserve role privacy", () => {
+  const session=createSession({code:"A4FULL",playerCount:5});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  completeOutsidePlan(session,{firstLocation:"c",secondLocation:"a",tool1:"valve_wrench",tool2:"signal_meter",supportItem:"flood_kit",filterUse:99});commitAndAdvance(session);
+  update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");
+  assert.equal(session.fieldRun.phase,"travel");assert.equal(session.clock.running,false);
+  finishAct4Opening(session);
+  const runner=authorize(session,session.players.operations.token),cabin=authorize(session,session.players.lead.token);
+  const runnerState=publicState(session,runner),cabinState=publicState(session,cabin),sharedState=publicState(session,{kind:"public"}),facilitatorState=publicState(session,facilitator);
+  assert.equal(runnerState.fieldGame.side,"runner");assert.equal(runnerState.fieldGame.modules.three_buttons.solution,undefined);
+  assert.equal(runnerState.fieldGame.modules.three_buttons.guidanceOwner.role,"lead");assert.equal(runnerState.fieldGame.modules.three_buttons.guidanceOwner.name,session.players.lead.name);
+  assert.equal(cabinState.fieldGame.side,"station");assert.equal(cabinState.fieldGame.modules,undefined);assert.ok(cabinState.fieldGame.procedures.length>=1);
+  assert.equal(sharedState.fieldGame,null);assert.doesNotMatch(JSON.stringify(sharedState),/"solution"|RIGHT · RIGHT/);
+  assert.deepEqual(facilitatorState.fieldGame.modules.three_buttons.solution,[2,0,1,1,0,2,1,0]);
+  const procedureId=cabinState.fieldGame.procedures[0].id;
+  applyAction(session,cabin,"FIELD_PROCEDURE_READY",{moduleId:procedureId});
+  assert.equal(publicState(session,cabin).fieldGame.procedures.find(item=>item.id===procedureId).ready,true,"cabin player receives a persistent guidance action");
+  assert.equal(publicState(session,runner).fieldGame.modules[procedureId].guidanceReady,true,"runner sees that cabin guidance is ready");
+  assert.ok(publicState(session,facilitator).fieldGame.readiness.lead[procedureId],"facilitator sees which cabin player transmitted guidance");
+  assert.throws(()=>applyAction(session,runner,"FIELD_PROCEDURE_READY",{moduleId:procedureId}),/assigned cabin player/i);
+  assert.throws(()=>applyAction(session,cabin,"FIELD_PROCEDURE_READY",{moduleId:"diagnostic_recovery"}),/not assigned/i);
+  act4Input(session,"three_buttons","append",0);act4Verify(session,"three_buttons");
+  assert.equal(session.fieldRun.boards[1].modules.three_buttons.completed,false);assert.deepEqual(session.fieldRun.boards[1].modules.three_buttons.queue,[]);
+  completeAct4Board1(session);
+  assert.equal(session.fieldRun.phase,"resolved");assert.equal(session.fieldRun.currentIndex,0);assert.equal(session.global.fieldServices.lower_road_camera_service,"restored");
+  session.fieldRun.transitionAt=0;expireIfNeeded(session);assert.equal(session.fieldRun.phase,"travel");assert.equal(session.fieldRun.currentIndex,1);
+  session.fieldRun.transitionAt=0;expireIfNeeded(session);assert.equal(session.fieldRun.phase,"service");assert.equal(session.fieldRun.boards[2].modules.level_sliders.completed,false);
+  assert.throws(()=>act4Input(session,"load_test","test","C"),/TEST A first/);
+  act4Input(session,"fuse_allocation","select","10A_DELAY");act4Input(session,"fuse_allocation","assign",undefined,{target:"PUMP"});
+  act4Input(session,"fuse_allocation","select","10A_DELAY");act4Input(session,"fuse_allocation","assign",undefined,{target:"FAN"});
+  assert.equal(session.fieldRun.boards[2].modules.fuse_allocation.assignments.PUMP,undefined,"an assigned physical fuse can be moved before VERIFY");
+  assert.equal(session.fieldRun.boards[2].modules.fuse_allocation.assignments.FAN,"10A_DELAY");
+  completeAct4Board2(session);
+  assert.equal(session.fieldRun.phase,"returning");session.fieldRun.transitionAt=0;expireIfNeeded(session);
+  assert.equal(session.stageStatus,"resolved");assert.equal(session.global.fieldServices.external_inbound_path,"restored");assert.equal(session.fieldRun.results.length,2);
+  applyAction(session,facilitator,"RESTART_ACT4");assert.equal(session.stageStatus,"live");assert.equal(session.fieldRun,null);assert.deepEqual(session.global.outsidePlan.FIRST_LOCATION,"c");assert.equal(session.draft.runner,"operations");
+});
+
+test("Act 4 cabin allocations follow the 4–7 player matrix and rebalance Repair 2", () => {
+  const expected={4:[[2,2,2],[2,2,2]],5:[[2,2,1,1],[1,1,2,2]],6:[[2,1,1,1,1],[1,1,1,1,2]],7:[[1,1,1,1,1,1],[1,1,1,1,1,1]]};
+  for(const playerCount of [4,5,6,7]){
+    const session=createSession({code:`A4${playerCount}PX`,playerCount});connectCrew(session);startShift(session);
+    completeHandover(session);commitAndAdvance(session);completeRepairStage(session);completeOutsidePlan(session);commitAndAdvance(session);
+    update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");
+    for(const boardNumber of [1,2]){
+      const allocation=session.fieldRun.boards[boardNumber].allocations,counts=Object.values(allocation).map(ids=>ids.length);
+      assert.deepEqual(counts,expected[playerCount][boardNumber-1]);assert.equal(new Set(Object.values(allocation).flat()).size,6);
+    }
+  }
+});
+
+test("Act 4 seeds all four deterministic Load Test branches and keeps wrong repairs recoverable", () => {
+  assert.deepEqual(new Set([0,1,2,3].map(variant=>createAct4Board(2,variant).load_test.fault)),new Set(["BEARING","DRIVE","COOLING","SUPPLY"]));
+  for(const index of [0,1,2,3]){
+    const session=createSession({code:`LOAD${String.fromCharCode(65+index)}`,playerCount:4});connectCrew(session);startShift(session);
+    completeHandover(session);commitAndAdvance(session);completeRepairStage(session);completeOutsidePlan(session);commitAndAdvance(session);
+    update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");finishAct4Opening(session);completeAct4Board1(session);
+    session.fieldRun.transitionAt=0;expireIfNeeded(session);session.fieldRun.transitionAt=0;expireIfNeeded(session);
+    const module=session.fieldRun.boards[2].modules.load_test;
+    // The session code selects the stable branch, while the four canonical
+    // variants above prove that every guide-defined fault model exists.
+    act4Input(session,"load_test","test","A");
+    assert.notEqual(module.meters.VIBRATION==="HIGH",module.meters.TEMPERATURE==="HIGH","TEST A exposes exactly one branch");
+    const followUp=module.meters.VIBRATION==="HIGH"?"B":"C";
+    assert.throws(()=>act4Input(session,"load_test","test",followUp==="B"?"C":"B"),/directs this fault/);
+    act4Input(session,"load_test","test",followUp);
+    const wrong=["BEARING","DRIVE","COOLING","SUPPLY"].find(item=>item!==module.fault);
+    act4Input(session,"load_test","select",wrong);act4Verify(session,"load_test");
+    assert.equal(module.completed,false);assert.equal(module.feedback,"REJECTED / CHECK PROCEDURE");assert.ok(module.tests.includes("A"));
+    act4Input(session,"load_test","select",module.fault);act4Verify(session,"load_test");assert.equal(module.completed,true);
+  }
+});
+
+test("Act 4 refresh preserves the active deadline, seeds, partial input and completed modules", () => {
+  const session=createSession({code:"A4SAVE",playerCount:4});connectCrew(session);startShift(session);
+  completeHandover(session);commitAndAdvance(session);completeRepairStage(session);completeOutsidePlan(session);commitAndAdvance(session);
+  update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");finishAct4Opening(session);
+  for(const value of [2,0,1,1,0,2,1,0])act4Input(session,"three_buttons","append",value);act4Verify(session,"three_buttons");
+  act4Input(session,"route_controls","append","right");act4Input(session,"route_controls","append","right");
+  const deadline=session.clock.endAt,seed=structuredClone(session.fieldRun.boards[1].modules.calibration_dials),saved=structuredClone(session);
+  const restored=publicState(saved,authorize(saved,saved.players.operations.token));
+  assert.equal(saved.clock.endAt,deadline);assert.deepEqual(saved.fieldRun.boards[1].modules.calibration_dials,seed);
+  assert.equal(restored.fieldGame.modules.three_buttons.completed,true);assert.deepEqual(restored.fieldGame.modules.route_controls.queue,["right","right"]);
 });
 
 test("all four field games are distinct and create only the specified operational outcomes", () => {
@@ -737,15 +975,20 @@ test("all four field games are distinct and create only the specified operationa
 
   const cd=createSession({code:"FIELD2",playerCount:4});connectCrew(cd);startShift(cd);
   completeHandover(cd);commitAndAdvance(cd);completeRepairStage(cd);
-  completeOutsidePlan(cd,{plannedInbound:"c",plannedOutbound:"d",firstTarget:"c",equipment:["flood_kit","high_access"]});commitAndAdvance(cd);
+  completeOutsidePlan(cd,{firstLocation:"c",secondLocation:"a",tool1:"valve_wrench",tool2:"signal_meter",supportItem:"flood_kit",filterUse:99});commitAndAdvance(cd);
   update(cd,{runner:"operations"});applyAction(cd,facilitator,"COMMIT_STAGE");completeActiveFieldRun(cd);
   assert.equal(cd.global.fieldServices.lower_road_camera_service,"restored");
-  assert.equal(cd.global.fieldServices.upper_ridge_service,"restored");
   assert.equal(cd.global.externalStatus.lower_road_camera_history,"working");
-  assert.equal(cd.global.externalStatus.ventilation_path,"working");
   const knowledge=cd.fieldRun.results.flatMap(result=>result.knowledge).join(" ");
   assert.match(knowledge,/Mara reached Lower Route.*headed back toward Blackout Ridge/i);
   assert.doesNotMatch(knowledge,/current location|trapped|beneath the cabin|R-12/i);
+
+  const aux=createSession({code:"FIELD5",playerCount:4});connectCrew(aux);startShift(aux);
+  completeHandover(aux);commitAndAdvance(aux);completeRepairStage(aux);
+  completeOutsidePlan(aux,{firstLocation:"d",secondLocation:"a",tool1:"torque_wrench",tool2:"signal_meter",supportItem:"climbing_kit",filterUse:87});commitAndAdvance(aux);
+  update(aux,{runner:"operations"});applyAction(aux,facilitator,"COMMIT_STAGE");completeActiveFieldRun(aux);
+  assert.equal(aux.global.fieldServices.upper_ridge_service,"restored");
+  assert.equal(aux.global.externalStatus.ventilation_path,"working");
 
   const ab=createSession({code:"FIELD3",playerCount:4});connectCrew(ab);startShift(ab);
   completeHandover(ab);commitAndAdvance(ab);completeRepairStage(ab,{fail:["inbound_receive"]});
@@ -839,6 +1082,33 @@ test("a shift cannot start until every configured terminal is connected", () => 
   assert.equal(session.stage,1);
 });
 
+test("facilitator can launch a complete direct Act 4 test only after every crew terminal is ready", () => {
+  for(const part of [1,2,3,4])assert.ok(existsSync(new URL(`../prototype/assets/video/act4/4-${part}.mp4`,import.meta.url)),`Act 4 opening clip ${part} must be packaged`);
+  const incomplete=createSession({code:"A4TEST",playerCount:4});
+  const lead=addPlayer(incomplete,{name:"Avery",role:"lead"});
+  assert.throws(()=>applyAction(incomplete,facilitator,"START_ACT4_TEST"),/all 4 crew terminals/i);
+  assert.throws(()=>applyAction(incomplete,authorize(incomplete,lead.token),"START_ACT4_TEST"),/not available/i);
+
+  const session=createSession({code:"A4READY",playerCount:4});connectCrew(session);
+  applyAction(session,facilitator,"START_ACT4_TEST");
+  assert.equal(session.stage,4);assert.equal(session.stageStatus,"live");assert.equal(session.testMode.act,4);
+  assert.deepEqual(session.fieldRun.route,["c","a"]);assert.equal(session.fieldRun.runner,"operations");
+  assert.equal(session.fieldRun.repairAllowance,360);assert.equal(session.fieldRun.phase,"travel");assert.equal(session.clock.running,false);
+  assert.ok(session.act4Intro.endsAt>session.act4Intro.startedAt);
+  assert.ok(session.act4Intro.endsAt-session.act4Intro.startedAt>=40_000,"all four ten-second Act 4 films must play before the field clock starts");
+  assert.equal(Object.keys(session.fieldRun.boards[1].modules).length,6);assert.equal(Object.keys(session.fieldRun.boards[2].modules).length,6);
+  assert.equal(publicState(session,facilitator).testMode.act,4);
+  for(const role of rolesByCount[4]){
+    const playerState=publicState(session,authorize(session,session.players[role].token));
+    assert.equal(playerState.stage,4,`${role} must move to Act 4 with the facilitator`);
+    assert.equal(playerState.act4Intro.startedAt,session.act4Intro.startedAt,`${role} must share the synchronized opening timestamp`);
+  }
+  const roomState=publicState(session,{kind:"public"});
+  assert.equal(roomState.stage,4,"the room display must move to Act 4 with the crew");
+  assert.equal(roomState.act4Intro.startedAt,session.act4Intro.startedAt,"the room display must share the synchronized opening timestamp");
+  assert.equal(publicState(session,authorize(session,session.players.operations.token)).fieldGame,null,"opening keeps the runner board sealed");
+});
+
 test("Act 1 lead-in holds the complete six-minute handover window until the video ends", () => {
   const session=createSession({code:"VIDEO1",playerCount:4});connectCrew(session);
   applyAction(session,facilitator,"START_GAME");
@@ -851,12 +1121,13 @@ test("Act 1 lead-in holds the complete six-minute handover window until the vide
 });
 
 test("Act 2 opening holds the complete three-minute prioritisation window until the strike sequence ends", () => {
+  assert.ok(existsSync(new URL("../prototype/assets/video/act2.mp4",import.meta.url)),"Act 2 opening film must be packaged");
   const session=createSession({code:"A2OPEN",playerCount:4});connectCrew(session);
   applyAction(session,facilitator,"START_GAME");
   completeHandover(session);applyAction(session,facilitator,"COMMIT_STAGE");applyAction(session,facilitator,"ADVANCE_STAGE");
   const state=publicState(session,facilitator);
   assert.equal(state.stage,2);
-  assert.equal(state.act2Intro.endsAt-state.act2Intro.startedAt,35_000);
+  assert.equal(state.act2Intro.endsAt-state.act2Intro.startedAt,20_000);
   assert.equal(state.clock.duration,180);
   assert.equal(state.clock.remaining,180);
   assert.equal(session.repairRun.planningStartedAt,state.act2Intro.endsAt);
@@ -910,8 +1181,8 @@ test("server rejects forged and incomplete decision payloads", () => {
   assert.throws(()=>applyAction(session,facilitator,"COMMIT_STAGE"),/all six outgoing staff/);
   completeHandover(session);commitAndAdvance(session);
   completeRepairStage(session);
-  update(session,{plannedInbound:"b",plannedOutbound:"d",firstTarget:"b",equipment:["gas_mask","service_toolkit"]});
-  assert.throws(()=>applyAction(session,facilitator,"COMMIT_STAGE"),/Missing: HIGH-ACCESS KIT/);
+  update(session,{firstLocation:"c",secondLocation:"d",tool1:"valve_wrench",tool2:"torque_wrench",supportItem:"flood_kit",filterUse:105});
+  assert.throws(()=>applyAction(session,facilitator,"ACT3_COMMIT_DEPLOYMENT"),/different support items/i);
 });
 
 test("role interventions apply distinct persistent effects", () => {
@@ -952,12 +1223,15 @@ test("four- and five-player configurations expose only valid combined terminals"
 test("the impossible Act 3 transmission stays unidentified and cannot solve the plan", () => {
   const session=createSession({code:"SIG001",playerCount:4});connectCrew(session);startShift(session);
   completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
+  assert.equal(publicState(session,{kind:"public"}).signalTransmission,null);
+  applyAction(session,facilitator,"ACT3_TRIGGER_VOICE");
   const signal=publicState(session,{kind:"public"}).signalTransmission;
   assert.equal(signal.source,"SOURCE NOT IDENTIFIED");
   assert.equal(signal.preserved,false);
-  assert.match(signal.transcript,/twelve.*twelve.*route/i);
-  assert.match(signal.instruction,/NOT STORED.*OBSOLETE INTERNAL/i);
+  assert.equal(signal.transcript,"Can anyone hear me?");
+  assert.match(signal.instruction,/NOT LOGGED.*CANNOT REPLAY/i);
   assert.doesNotMatch(signal.transcript,/Mara|North Mast|East Service/i);
+  assert.throws(()=>applyAction(session,facilitator,"ACT3_TRIGGER_VOICE"),/already played/i);
 });
 
 test("finale distinguishes clean rescue from a catastrophic Lark Shift echo", () => {
@@ -1064,13 +1338,25 @@ test("readiness lenses and prototype viability evidence remain facilitator-contr
   assert.equal(playerState.playtest,undefined);
 });
 
-test("Outside Run timeout fails both unresolved services forward without route substitution", () => {
+test("Outside Run gives each locked repair its own allowance and fails forward without route substitution", () => {
   const session=createSession({code:"TIME41",playerCount:4});connectCrew(session);startShift(session);
   completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
-  completeOutsidePlan(session,{plannedInbound:"c",plannedOutbound:"d",firstTarget:"c",equipment:["flood_kit","high_access"]});commitAndAdvance(session);
+  completeOutsidePlan(session,{firstLocation:"d",secondLocation:"a",tool1:"torque_wrench",tool2:"signal_meter",supportItem:"climbing_kit",filterUse:87});commitAndAdvance(session);
   update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");
+  assert.equal(session.clock.duration,360);
+  finishAct4Opening(session);
   session.clock.running=true;session.clock.endAt=Date.now()-1;
   assert.equal(expireIfNeeded(session),true);
+  assert.equal(session.stageStatus,"live");
+  assert.equal(session.fieldRun.phase,"resolved");assert.equal(session.fieldRun.currentIndex,0);
+  assert.equal(session.fieldRun.results.length,1);
+  assert.equal(session.fieldRun.results[0].locationId,"d");
+  assert.equal(session.clock.duration,360);
+  session.fieldRun.transitionAt=0;expireIfNeeded(session);assert.equal(session.fieldRun.phase,"travel");assert.equal(session.fieldRun.currentIndex,1);
+  session.fieldRun.transitionAt=0;expireIfNeeded(session);assert.equal(session.fieldRun.phase,"service");
+  session.clock.endAt=Date.now()-1;
+  assert.equal(expireIfNeeded(session),true);
+  assert.equal(session.fieldRun.phase,"returning");session.fieldRun.transitionAt=0;expireIfNeeded(session);
   assert.equal(session.stageStatus,"resolved");
   assert.equal(session.global.fieldServices.lower_road_camera_service,"not_restored");
   assert.equal(session.global.fieldServices.upper_ridge_service,"not_restored");
@@ -1157,7 +1443,10 @@ test("shared Act 4 state cannot see either side of the cooperative field puzzle"
   assert.equal(shared.fieldRun.localRadio,"clear");
   assert.deepEqual(shared.fieldRun.route,["a","b"]);
 
-  const signal = publicState(session, authorize(session, session.players.signal.token));
+  const signalViewer=authorize(session,session.players.signal.token);
+  assert.equal(publicState(session,signalViewer).fieldGame,null,"private repair material stays closed during the opening");
+  finishAct4Opening(session);
+  const signal = publicState(session,signalViewer);
   assert.equal(signal.fieldGame.side,"station");
   assert.equal(signal.fieldGame.observation,undefined);
   assert.match(signal.privateCard.body,/indicator behavior|functional symptom/i);
@@ -1173,7 +1462,7 @@ test("six-player Outside Run retains the reliable local-radio rule", () => {
 test("Act 5 rotates one cabin move per player and exposes exact values only with Air Quality", () => {
   const session=createSession({code:"CABIN1",playerCount:4});connectCrew(session);startShift(session);
   completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
-  completeOutsidePlan(session,{plannedInbound:"c",plannedOutbound:"d",firstTarget:"c",equipment:["flood_kit","high_access"]});commitAndAdvance(session);
+  completeOutsidePlan(session,{firstLocation:"d",secondLocation:"a",tool1:"torque_wrench",tool2:"signal_meter",supportItem:"climbing_kit",filterUse:87});commitAndAdvance(session);
   update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");completeActiveFieldRun(session);
   applyAction(session,facilitator,"ADVANCE_STAGE");
   assert.equal(session.stage,5);assert.equal(session.clock.duration,240);

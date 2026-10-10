@@ -132,6 +132,48 @@ export const FIELD_EQUIPMENT = [
   ["service_toolkit", "SPECIALIST SERVICE TOOLKIT"],
 ];
 
+// Act 3 uses the revised client handoff's deliberately compact planning model.
+// The IDs remain a–d internally so the existing Act 4 field games can consume
+// the locked route without translating or weakening the handoff boundary.
+export const ACT3_LOCATIONS = [
+  { id:"a", code:"RX-01", name:"RX-01 / RELAY RECEIVER", restores:"INBOUND COMMUNICATIONS", stage1:46, stage3:23, toolOptions:["signal_meter"], support:null },
+  { id:"b", code:"TX-01", name:"TX-01 / TRANSMITTER", restores:"HUMAN OUTBOUND COMMUNICATIONS", stage1:43, stage3:20, toolOptions:["signal_meter","insulated_driver"], support:null },
+  { id:"c", code:"CAM-01", name:"CAM-01 / LOWER ROAD CAMERA", restores:"LOWER ROAD CAMERA", stage1:27, stage3:20, toolOptions:["valve_wrench"], support:"flood_kit" },
+  { id:"d", code:"AUX-01", name:"AUX-01 / VENTILATION / PURGE", restores:"VENTILATION / PURGE", stage1:0, stage3:30, toolOptions:["torque_wrench"], support:"climbing_kit" },
+];
+
+export const ACT3_REPAIR_TOOLS = [
+  ["signal_meter","SIGNAL METER"],
+  ["insulated_driver","INSULATED DRIVER SET"],
+  ["valve_wrench","VALVE WRENCH"],
+  ["torque_wrench","TORQUE WRENCH"],
+];
+
+export const ACT3_SUPPORT_ITEMS = [
+  ["emergency_filter","EMERGENCY FILTER CARTRIDGE"],
+  ["flood_kit","FLOOD KIT"],
+  ["climbing_kit","CLIMBING KIT"],
+];
+
+export const ACT3_STAGE2_COSTS = {
+  "a>b":45, "b>a":45,
+  "a>c":49, "c>a":49,
+  "b>c":51, "c>b":51,
+  "a>d":54, "d>a":64,
+  "b>d":57, "d>b":67,
+  "c>d":48, "d>c":58,
+};
+
+// These six rows are the sole acceptance source of truth from handoff v0.5.
+export const ACT3_VALID_DEPLOYMENTS = [
+  { first:"a", second:"b", filterUse:111, support:"emergency_filter", tool1:["signal_meter"], tool2:["signal_meter","insulated_driver"] },
+  { first:"b", second:"a", filterUse:111, support:"emergency_filter", tool1:["signal_meter","insulated_driver"], tool2:["signal_meter"] },
+  { first:"c", second:"a", filterUse:99, support:"flood_kit", tool1:["valve_wrench"], tool2:["signal_meter"] },
+  { first:"c", second:"b", filterUse:98, support:"flood_kit", tool1:["valve_wrench"], tool2:["signal_meter","insulated_driver"] },
+  { first:"d", second:"a", filterUse:87, support:"climbing_kit", tool1:["torque_wrench"], tool2:["signal_meter"] },
+  { first:"d", second:"b", filterUse:87, support:"climbing_kit", tool1:["torque_wrench"], tool2:["signal_meter","insulated_driver"] },
+];
+
 export const PRE_STRIKE_ARCHIVE = [
   {
     ref:"ARCHIVE-21:20",
@@ -163,10 +205,10 @@ export const ACT1_TRANSMISSIONS = [
 // Timings are measured from the fixed runner-deployment point T+0.
 // Location descriptions are intentionally neutral: every site contains a genuine fault.
 export const OUTSIDE_LOCATIONS = [
-  { id:"a", name:"A / NORTH MAST APRON", travel:2, service:2, concentration:16, rise:1, transfer:{b:2,c:3,d:4}, requirement:["gas_mask"], serviceNote:"Exposed-horizon sealed cabinet; passive return calibration." },
-  { id:"b", name:"B / EAST SERVICE BAY", travel:2, service:3, concentration:15, rise:1, transfer:{a:2,c:3,d:4}, requirement:["gas_mask","service_toolkit"], serviceNote:"Protected line-driver cabinet; specialist calibration port." },
-  { id:"c", name:"C / LOWER ROUTE ANNEX", travel:2, service:2, concentration:12, rise:1, transfer:{a:3,b:3,d:3}, requirement:["flood_kit"], serviceNote:"Flooded camera and historical-recording cabinet; old conduit in foundation." },
-  { id:"d", name:"D / UPPER RIDGE PLATFORM", travel:2, service:3, concentration:5, rise:.4, transfer:{a:4,b:4,c:3}, requirement:["high_access"], serviceNote:"High-access legacy ventilation installation; unresolved old branch." },
+  { id:"a", name:"RX-01 / RELAY RECEIVER", travel:2, service:2, concentration:16, rise:1, transfer:{b:2,c:3,d:4}, requirement:["emergency_filter"], serviceNote:"Ground-level receiver alignment and live signal-strength test point." },
+  { id:"b", name:"TX-01 / TRANSMITTER", travel:2, service:3, concentration:15, rise:1, transfer:{a:2,c:3,d:4}, requirement:["emergency_filter"], serviceNote:"Ground-level transmitter alignment and powered service panel." },
+  { id:"c", name:"CAM-01 / LOWER ROAD CAMERA", travel:2, service:2, concentration:12, rise:1, transfer:{a:3,b:3,d:3}, requirement:["flood_kit"], serviceNote:"Flooded camera service platform and square drainage release spindle." },
+  { id:"d", name:"AUX-01 / VENTILATION / PURGE", travel:2, service:3, concentration:5, rise:.4, transfer:{a:4,b:4,c:3}, requirement:["climbing_kit"], serviceNote:"Elevated ventilation assembly with a measured-torque mounting collar." },
 ];
 
 export const FIELD_GAMES = {
@@ -351,18 +393,18 @@ export const STAGES = {
     options: REPAIR_SYSTEMS.map(system=>[system.id,system.name]),
   },
   3: {
-    title: "Build the outside plan", kicker: "EXTERNAL FAILURE", duration: 420,
+    title: "Plan the field deployment", kicker: "FIELD DEPLOYMENT PLANNING", duration: 480,
     image: "outside-run.webp", mechanic: "outside_plan",
-    objective: "Diagnose two communications locations and build a physically viable two-stop route with exactly two specialist items.",
-    scene: "21:23. A central field-distribution failure drops four outside capabilities to red OFFLINE. The automatic station heartbeat continues to report OPERATIONAL / NO ACTIVE DISTRESS.",
+    objective: "Choose two external repair locations, their order, two repair tools and one support item; calculate the complete route's filter use.",
+    scene: "A separate external power-distribution failure takes Inbound Receive, Human Outbound, Lower Road Camera and Ventilation Control offline. Contaminated air continues spreading upslope while the automatic heartbeat still reports OPERATIONAL / NO ACTIVE DISTRESS.",
     story: {
-      chapter: "THE RUNNER CAN SERVICE ONLY TWO SITES",
-      arrival: "Every red site has a real fault, but only two restore human communications. The crew must move from failed function to component symptom to physical location.",
-      pressure: "The runner carries exactly two specialist items. Travel order changes exposure: a route that works in one direction may become impossible in reverse.",
-      next: "The plan locks without any diagnosis score. The runner leaves at T+0—and an impossible voice tears through obsolete infrastructure as the cabin loses contact.",
+      chapter: "FOUR SYSTEMS OFFLINE. TWO LOCATIONS CAN BE REACHED.",
+      arrival: "Every player receives the same Navigation Resource, Field Systems Service Manual and Field Equipment Catalogue. Together the crew must assemble one deployment.",
+      pressure: "The runner may carry two repair tools and one support item. Every route has three published filter-cost stages; capacity is 100 units, or 115 with the Emergency Filter Cartridge.",
+      next: "The route, equipment, runner and repair allowance lock for Act 4. The outside run and both repair puzzles happen there—not during planning.",
     },
-    participantGoal: "Share the part of the chain only you can see: failed function, component clue, location characteristic, timing, or equipment rule. Help the crew produce a feasible plan without treating the interface as a correctness checker.",
-    options: [["a","A / NORTH MAST APRON"],["b","B / EAST SERVICE BAY"],["c","C / LOWER ROUTE ANNEX"],["d","D / UPPER RIDGE PLATFORM"]],
+    participantGoal: "Use the three shared resources to identify what each location restores, choose a viable two-stop order, equip it correctly and add the three published filter costs.",
+    options: ACT3_LOCATIONS.map(location=>[location.id,location.name]),
   },
   4: {
     title: "Execute the outside run", kicker: "OUTSIDE RUN", duration: 480,
