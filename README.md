@@ -16,15 +16,40 @@ for the acceptance evidence for every act.
 
 ## Run the game
 
-Requires Node.js 20 or newer. No package installation is needed.
+Requires Node.js 20 or newer. Install the locked server dependency, then start
+the game:
 
 ```bash
-npm run dev
+npm ci
+npm start
 ```
 
 Open `http://localhost:4173`, create a session, copy the crew link, and open the
 shared display on the room screen. Each player joins from their own browser and
 chooses one unclaimed role.
+
+### Runtime configuration
+
+The complete playable runtime and all required images, audio, video, server
+code, and browser code are stored in this repository. No third-party asset host,
+API key, or external service is required.
+
+Optional environment variables:
+
+- `PORT` — HTTP port; defaults to `4173`.
+- `BLACKOUT_DATA_DIR` — writable session-storage directory; defaults to
+  `./data`.
+- `ACT5_GAS_THRESHOLD` — Act 5/6 atmospheric branch threshold; defaults to
+  `30000`.
+- `ACT6_SHORT_SECONDS` and `ACT6_LONG_SECONDS` — Act 6 investigation windows;
+  default to `180` and `240`.
+- `ACT6_ARCHIVE_SECONDS` — Act 6 historical archive interval; defaults to `90`.
+- `ACT6_WARNING_SECONDS` and `ACT6_CRITICAL_SECONDS` — Act 6 warning points;
+  default to `60` and `30`.
+
+`data/sessions.json` is generated at runtime and intentionally excluded from
+Git. Copy that file separately only when existing live or historical sessions
+must be migrated. A fresh deployment does not need it.
 
 ## Implemented system
 
