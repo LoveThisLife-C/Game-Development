@@ -1,0 +1,133 @@
+@font-face{font-family:"Blackout Display";src:url("/assets/fonts/blackout-display.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Blackout Body";src:url("/assets/fonts/blackout-body-regular.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Blackout Mono";src:url("/assets/fonts/blackout-mono-regular.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Blackout Mono";src:url("/assets/fonts/blackout-mono-bold.ttf") format("truetype");font-weight:700 900;font-display:swap}
+:root{font-family:"Blackout Body",Arial,sans-serif}h1,h2,h3,button{font-family:"Blackout Display","Arial Narrow",sans-serif}.eyebrow,.session,.station-state,.gas-monitor{font-family:"Blackout Mono",monospace}
+
+body[data-view=player]:not([class*="-active"]){min-height:100dvh;background:#030909 url("/assets/images/act5/cabin-workstations-backdrop-v1.webp") center/cover fixed no-repeat;overflow-x:hidden}
+body[data-view=player]:not([class*="-active"])::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(180deg,#020808b8 0,#02090952 27%,#0207066b 72%,#020505e8 100%),radial-gradient(ellipse at 50% 52%,transparent 20%,#0104048c 90%);z-index:0}
+body[data-view=player]:not([class*="-active"]) main.player{position:relative;z-index:1;width:min(1360px,100%);max-width:none;min-height:100dvh;padding:clamp(18px,3vh,38px) clamp(18px,4vw,64px) 24px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto auto;align-content:stretch;gap:clamp(10px,1.5vh,20px)}
+body[data-view=player]:not([class*="-active"]) header{padding:0 0 14px;border:0;border-bottom:1px solid #70d8dd6b;text-shadow:0 2px 10px #000}
+body[data-view=player]:not([class*="-active"]) header h1{margin:2px 0 0;font-size:clamp(32px,4.2vw,62px);font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:#e8f3ef}
+body[data-view=player]:not([class*="-active"]) header .eyebrow{margin:0;color:#7edfe5;font-size:clamp(10px,.85vw,13px);letter-spacing:.18em}
+body[data-view=player]:not([class*="-active"]) .session{align-items:center;min-width:130px;padding-left:18px;border-left:2px solid #cf423a;font-size:11px;text-transform:uppercase}
+body[data-view=player]:not([class*="-active"]) .session b{font:700 clamp(28px,3vw,44px)/1 "Blackout Mono",monospace;color:#f2f5e8;text-shadow:0 0 18px #74dce055}
+body[data-view=player]:not([class*="-active"]) .station-state{margin:0;padding:2px 0;color:#e6d59b;letter-spacing:.11em;text-transform:uppercase}
+body[data-view=player]:not([class*="-active"]) .station-state #occupancy{min-height:0;color:#e6d59b}
+
+body[data-view=player]:not([class*="-active"]) .work-locations{align-self:center;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:clamp(8px,1.2vw,18px);margin:0;padding:clamp(8px,1.4vw,20px) 0;border:0}
+body[data-view=player]:not([class*="-active"]) .work-locations button{--station-icon:none;position:relative;display:flex;align-items:flex-end;justify-content:center;min-width:0;min-height:clamp(118px,17vh,170px);padding:94px 6px 27px;border:0!important;border-radius:0;background:radial-gradient(ellipse at 50% 45%,#0a2424c7 0,transparent 66%)!important;box-shadow:inset 0 -2px #72cfd26b;color:#f3eee0;font:600 clamp(13px,1.15vw,18px)/1.05 "Blackout Display",sans-serif;letter-spacing:.045em;text-transform:uppercase;text-shadow:0 2px 8px #000;overflow:hidden;isolation:isolate;transition:transform .18s ease,filter .18s ease,color .18s ease;animation:none!important}
+body[data-view=player]:not([class*="-active"]) .work-locations button::before{content:"";position:absolute;z-index:-1;left:50%;top:42%;width:clamp(82px,8.2vw,128px);height:clamp(82px,8.2vw,128px);transform:translate(-50%,-50%);background-image:var(--station-icon);background-position:center;background-repeat:no-repeat;background-size:contain;filter:drop-shadow(0 7px 8px #000a) drop-shadow(0 0 8px #57cdd06b)}
+body[data-view=player]:not([class*="-active"]) .work-locations button::after{content:attr(data-occupant) "  ·  " attr(data-state);position:absolute;left:4px;right:4px;bottom:7px;overflow:hidden;color:#efb94e;font:700 clamp(8px,.63vw,10px)/1.1 "Blackout Mono",monospace;letter-spacing:.03em;white-space:nowrap;text-overflow:ellipsis}
+body[data-view=player]:not([class*="-active"]) .work-locations button:hover:not(:disabled),body[data-view=player]:not([class*="-active"]) .work-locations button:focus-visible{transform:translateY(-5px) scale(1.025);filter:brightness(1.22);color:#fff;box-shadow:inset 0 -3px #85f5fa,0 14px 25px #0008}
+body[data-view=player]:not([class*="-active"]) .work-locations button.station-stable::after{color:#7bedaa}body[data-view=player]:not([class*="-active"]) .work-locations button.station-stable{box-shadow:inset 0 -2px #63d98a99;background:radial-gradient(ellipse at 50% 45%,#0b3124b8 0,transparent 66%)!important}
+body[data-view=player]:not([class*="-active"]) .work-locations button.station-offline{filter:grayscale(.8);opacity:.64;background:radial-gradient(ellipse at 50% 45%,#171d20c7 0,transparent 66%)!important}
+body[data-view=player]:not([class*="-active"]) #switch-brace{--station-icon:url("/assets/images/act5/station-icons/door-brace-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-repair{--station-icon:url("/assets/images/act5/station-icons/door-repair-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-intake{--station-icon:url("/assets/images/act5/station-icons/intake-diversion-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-service{--station-icon:url("/assets/images/act5/station-icons/service-seal-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-filter{--station-icon:url("/assets/images/act5/station-icons/filter-bank-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-livewire{--station-icon:url("/assets/images/act5/station-icons/live-wire-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-scrubber{--station-icon:url("/assets/images/act5/station-icons/chemical-scrubber-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-purge{--station-icon:url("/assets/images/act5/station-icons/emergency-purge-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-air{--station-icon:url("/assets/images/act5/station-icons/air-supply-v1.webp")}body[data-view=player]:not([class*="-active"]) #switch-demister{--station-icon:url("/assets/images/act5/station-icons/demister-v1.webp")}
+body[data-view=player]:not([class*="-active"]) #station-summary{display:none}
+body[data-view=player]:not([class*="-active"]) #gas-home{align-self:end}body[data-view=player]:not([class*="-active"]) #gas-home .gas-monitor{margin:0;padding:12px 18px;min-height:0;border:0;border-top:1px solid #6ecfd288;border-bottom:1px solid #b84b4399;border-radius:0;background:linear-gradient(90deg,#020a0bd9,#0d2119cb 45%,#020a0bd9);backdrop-filter:blur(8px);box-shadow:0 12px 32px #0008}body[data-view=player]:not([class*="-active"]) #gas-home .gas-monitor strong{font-size:clamp(18px,1.8vw,28px)}body[data-view=player]:not([class*="-active"]) .player-footer{margin:0;padding:8px 180px 0 0;border-color:#5e868255;font:11px/1.4 "Blackout Mono",monospace;color:#aebfba}
+
+body[data-view=screen]{background:#030808 url("/assets/images/act5/cabin-workstations-backdrop-v1.webp") center/cover fixed no-repeat}body[data-view=screen]::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(#020808b8,#020808a8);z-index:0}body[data-view=screen] main.shared{position:relative;z-index:1;max-width:1760px}body[data-view=screen] header{border-color:#6edee070}body[data-view=screen] header h1{text-transform:uppercase;letter-spacing:.04em}body[data-view=screen] .cabin-wrap{background:#06100fd1;box-shadow:0 18px 44px #000b;backdrop-filter:blur(4px)}body[data-view=screen] .station-card{border:0;border-top:1px solid #58b6b899;border-bottom:2px solid #b14c44;background:linear-gradient(180deg,#071111e8,#150d0ddb);border-radius:0}body[data-view=screen] .station-card.station-stable{border-bottom-color:#69c88d;background:linear-gradient(180deg,#071411e8,#0b1d13db)}
+
+@media(max-width:900px){body[data-view=player]:not([class*="-active"]) main.player{padding:16px 18px}body[data-view=player]:not([class*="-active"]) .work-locations{grid-template-columns:repeat(2,minmax(0,1fr));align-self:start}body[data-view=player]:not([class*="-active"]) .work-locations button{min-height:128px}body[data-view=player]:not([class*="-active"]) header h1{font-size:34px}body[data-view=player]:not([class*="-active"]) .player-footer{padding-right:0;margin-bottom:70px}}
+@media(max-width:520px){body[data-view=player]:not([class*="-active"]) header{align-items:flex-start}body[data-view=player]:not([class*="-active"]) header h1{font-size:27px}body[data-view=player]:not([class*="-active"]) .session{min-width:94px}body[data-view=player]:not([class*="-active"]) .work-locations{gap:4px}body[data-view=player]:not([class*="-active"]) .work-locations button{min-height:112px;padding-top:75px;font-size:12px}body[data-view=player]:not([class*="-active"]) .work-locations button::before{width:82px;height:82px}body[data-view=player]:not([class*="-active"]) .work-locations button::after{font-size:7px}body[data-view=player]:not([class*="-active"]) #gas-home .gas-monitor{padding-right:76px}}
+
+/* Active station mode: one continuous physical console, never a generic page of boxes. */
+html body[data-view=player][class*="-active"]{background:#020606 url("/assets/images/act5/station-workspace-chassis-v1.webp") center/100% 100% fixed no-repeat!important}
+html body[data-view=player][class*="-active"]::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,transparent 50%,#0008 100%);z-index:0}
+html body[data-view=player][class*="-active"] main.player{position:relative;z-index:1;padding:clamp(9px,2.1vh,24px) clamp(18px,4.7vw,86px) clamp(12px,3.8vh,42px)!important;background:transparent!important}
+html body[data-view=player][class*="-active"] main.player>header{background:transparent!important;border:0!important;border-bottom:1px solid #68d7dc66!important;text-shadow:0 2px 9px #000}
+html body[data-view=player][class*="-active"] main.player>header h1{font-family:"Blackout Display","Arial Narrow",sans-serif!important;letter-spacing:.045em!important;text-transform:uppercase;color:#eef5ed}
+html body[data-view=player][class*="-active"] .station-state{background:transparent!important;border:0!important}
+html body[data-view=player][class*="-active"] #release{border:0!important;border-bottom:2px solid #ce5a4c!important;border-radius:0!important;background:transparent!important;color:#f0c4b7!important;font:700 12px "Blackout Mono",monospace!important;letter-spacing:.08em;box-shadow:none!important}
+html body[data-view=player][class*="-active"] #release:hover{color:#fff!important;filter:drop-shadow(0 0 8px #ff5d4f)!important;transform:translateY(-1px)}
+html body[data-view=player][class*="-active"] .work-locations{border:0!important;background:linear-gradient(90deg,transparent,#061416b8 12%,#061416b8 88%,transparent)!important}
+html body[data-view=player][class*="-active"] .work-locations button{border:0!important;border-bottom:2px solid #3e797b!important;border-radius:0!important;background:transparent!important;color:#a8c2bd!important;font-family:"Blackout Display",sans-serif!important;letter-spacing:.035em;box-shadow:none!important}
+html body[data-view=player][class*="-active"] .work-locations button:hover:not(:disabled){color:#fff!important;border-bottom-color:#78edf0!important;text-shadow:0 0 8px #63dfe5;filter:none!important}
+html body[data-view=player][class*="-active"] .work-locations button.station-stable{border-bottom-color:#63d98a!important;color:#bce7c4!important}
+html body[data-view=player][class*="-active"] .work-locations button.needs-attention{border-bottom-color:#e1a446!important;color:#f0d39d!important}
+html body[data-view=player][class*="-active"] :is(#brace-panel,#repair-panel,#intake-panel,#service-panel,#filter-panel,#livewire-panel,#scrubber-panel,#purge-panel,#air-panel,#demister-panel){background:linear-gradient(180deg,#041011b8,#020707d9)!important;border:0!important;border-radius:0!important;box-shadow:inset 0 1px #74d9dc5c,inset 0 -1px #c8624f4f,0 18px 38px #0008!important}
+html body[data-view=player][class*="-active"] :is(.pneumatic-heading,.repair-heading,.intake-heading,.service-heading,.filter-heading,.livewire-heading,.scrubber-heading,.purge-heading,.air-heading,.demister-heading) h2{font-family:"Blackout Display","Arial Narrow",sans-serif!important;letter-spacing:.06em;color:#eef5ed;text-shadow:0 0 10px #6cdee052}
+
+/* Shared/facilitator cabin view: generated command-console artwork carries the screen. */
+html body[data-view=screen]{background:#010404!important}
+html body[data-view=screen]::before{display:none!important}
+html body[data-view=screen] main.shared{width:100%;max-width:none!important;margin:0!important;padding:clamp(38px,5vh,62px) clamp(48px,5.2vw,100px) clamp(44px,5.8vh,70px)!important;background:#020606 url("/assets/images/act5/cabin-status-console-v1.webp") center/100% 100% no-repeat!important}
+html body[data-view=screen] main.shared>header{border:0!important;border-bottom:1px solid #61d7dc6b!important;padding:0 0 7px!important}
+html body[data-view=screen] .cabin-wrap{background:linear-gradient(180deg,#020808b3,#061110a6)!important;border:0!important;box-shadow:inset 0 0 36px #000,0 0 28px #000c!important;backdrop-filter:none}
+html body[data-view=screen] .station-overview{background:linear-gradient(90deg,transparent,#04100fd4 5%,#04100fd4 95%,transparent);padding:5px 2px}
+html body[data-view=screen] .station-card{padding:6px 7px!important;background:transparent!important;border-top:0!important;border-bottom:2px solid #c45749!important;box-shadow:none!important}
+html body[data-view=screen] .station-card{grid-template-columns:28px 10px minmax(0,1fr)!important;gap:3px 5px!important;align-items:center}
+html body[data-view=screen] .station-card>img{grid-row:1/4;width:28px;height:28px;object-fit:contain;filter:drop-shadow(0 0 5px #62dde080)}
+html body[data-view=screen] .station-card>strong{font-family:"Blackout Display",sans-serif!important;font-size:clamp(10px,.78vw,14px)!important;letter-spacing:.025em}
+html body[data-view=screen] .station-card>span:not(.status-light),html body[data-view=screen] .station-card>small{grid-column:2/4!important;font-family:"Blackout Mono",monospace!important;font-size:clamp(7px,.55vw,10px)!important}
+html body[data-view=screen] .station-card.station-stable{border-bottom-color:#67d18c!important}
+html body[data-view=screen] .instruments{background:transparent!important;border-top:1px solid #65cdd05e!important}
+
+@media(max-width:900px){html body[data-view=player][class*="-active"] main.player{padding:8px 18px 16px!important;background:#03100fc9!important}html body[data-view=screen] main.shared{padding:24px 28px 30px!important;background-size:cover!important}html body[data-view=screen] .station-overview{grid-template-columns:repeat(5,minmax(0,1fr))!important}}
+
+/* Phone/tablet station mode: preserve full-size controls and scroll vertically instead of crushing the desktop board. */
+@media(max-width:700px){
+  html body[data-view=player][class*="-active"]{overflow-x:hidden!important;overflow-y:auto!important;background-size:cover!important;background-position:center top!important}
+  html body[data-view=player][class*="-active"] main.player{width:100%!important;height:auto!important;min-height:100dvh!important;max-width:100%!important;padding:12px 14px 86px!important;display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;grid-template-rows:auto auto auto auto auto!important;grid-template-areas:"head seat" "nav nav" "game game" "status status"!important;gap:10px!important;background:transparent!important;overflow:visible!important}
+  html body[data-view=player][class*="-active"] main.player>header{min-width:0!important;min-height:58px!important;padding:0 8px 8px 0!important}
+  html body[data-view=player][class*="-active"] main.player>header h1{font-size:clamp(22px,7vw,30px)!important;line-height:1!important;white-space:normal!important}
+  html body[data-view=player][class*="-active"] main.player>header .eyebrow{font-size:10px!important;line-height:1.25!important}
+  html body[data-view=player][class*="-active"] .session{min-width:92px!important;font-size:10px!important}
+  html body[data-view=player][class*="-active"] .session b{font-size:24px!important}
+  html body[data-view=player][class*="-active"] .station-state{margin:0!important;align-self:start!important;flex-direction:column!important;align-items:flex-end!important;gap:4px!important;font-size:10px!important}
+  html body[data-view=player][class*="-active"] .station-state #occupancy{max-width:112px;text-align:right!important;line-height:1.2!important}
+  html body[data-view=player][class*="-active"] #release{min-height:36px!important;padding:6px 8px!important;font-size:11px!important}
+  html body[data-view=player][class*="-active"] .work-locations{display:flex!important;grid-area:nav!important;width:100%!important;max-width:100%!important;gap:4px!important;margin:0!important;padding:2px 0 7px!important;overflow-x:auto!important;overflow-y:hidden!important;scroll-snap-type:x proximity;overscroll-behavior-inline:contain;scrollbar-width:thin}
+  html body[data-view=player][class*="-active"] .work-locations button{flex:0 0 118px!important;width:118px!important;min-width:118px!important;min-height:42px!important;padding:7px 5px!important;font-size:11px!important;scroll-snap-align:start}
+  html body[data-view=player][class*="-active"] :is(#brace-panel,#repair-panel,#intake-panel,#service-panel,#filter-panel,#livewire-panel,#scrubber-panel,#purge-panel,#air-panel,#demister-panel){grid-area:game!important;width:100%!important;max-width:100%!important;height:auto!important;min-height:0!important;margin:0!important;padding:12px!important;display:grid!important;grid-template-rows:auto!important;gap:12px!important;overflow:visible!important}
+  html body[data-view=player][class*="-active"] :is(#brace-panel,#repair-panel,#intake-panel,#service-panel,#filter-panel,#livewire-panel,#scrubber-panel,#purge-panel,#air-panel,#demister-panel)[hidden]{display:none!important}
+  html body[data-view=player][class*="-active"] :is(.pneumatic-heading,.repair-heading,.intake-heading,.service-heading,.filter-heading,.livewire-heading,.scrubber-heading,.purge-heading,.air-heading,.demister-heading){min-height:0!important;display:flex!important;flex-wrap:wrap!important;align-items:flex-start!important;gap:6px 12px!important}
+  html body[data-view=player][class*="-active"] :is(.pneumatic-heading,.repair-heading,.intake-heading,.service-heading,.filter-heading,.livewire-heading,.scrubber-heading,.purge-heading,.air-heading,.demister-heading) h2{width:100%;font-size:19px!important;line-height:1.1!important;white-space:normal!important}
+  html body[data-view=player][class*="-active"] :is(.pneumatic-console,.repair-console,.intake-console,.service-console,.filter-console,.livewire-console,.scrubber-console,.purge-console,.air-console,.demister-console){width:100%!important;max-width:100%!important;height:auto!important;min-height:0!important;display:grid!important;grid-template-columns:minmax(0,1fr)!important;grid-auto-rows:auto!important;gap:12px!important;overflow:visible!important}
+  html body[data-view=player][class*="-active"] :is(.pneumatic-console,.repair-console,.intake-console,.service-console,.filter-console,.livewire-console,.scrubber-console,.purge-console,.air-console,.demister-console)>*{width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important}
+  html body[data-view=player][class*="-active"] :is(p,small,label,li,button,span){font-size:max(11px,1em)!important;line-height:1.4!important}
+  html body[data-view=player][class*="-active"] :is(#pneumatic-board,#pneumatic-door-board,#repair-workspace,#intake-board,#service-board,#filter-board,#livewire-board,#scrubber-board){min-height:300px!important}
+  html body[data-view=player][class*="-active"] :is(#pneumatic-svg,#repair-door-svg,#intake-svg,#service-svg,#filter-svg,#cabinet,#vessel,#purge-machine,#air-machine,#demister-machine){display:block!important;width:100%!important;max-width:100%!important;height:auto!important;min-width:0!important;min-height:260px!important;aspect-ratio:auto!important}
+  html body.brace-active .pneumatic-console>section{min-height:360px!important}
+  html body.brace-active .pressure-devices{grid-template-columns:1fr!important}
+  html body.repair-active .repair-control-rail{min-height:180px!important;display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important}
+  html body.repair-active .repair-locking-column{min-height:360px!important}
+  html body.repair-active .repair-assembly-column{display:grid!important;grid-template-rows:auto auto auto!important;gap:8px!important}
+  html body.repair-active .repair-support{display:grid!important;grid-template-rows:auto auto auto!important;gap:8px!important}
+  html body.repair-active .repair-status{min-height:110px!important;height:auto!important;padding:10px!important}
+  html body.repair-active .repair-announcements{position:static!important;inset:auto!important;width:100%!important;height:auto!important;min-height:34px!important;margin-top:7px!important}
+  html body.repair-active .repair-announcements>*{position:static!important;height:auto!important;min-height:34px!important}
+  html body.intake-active .intake-board{min-height:380px!important}
+  html body.service-active .service-application,html body.filter-active .filter-application{min-height:420px!important}
+  html body.livewire-active #livewire-board{min-height:420px!important}
+  html body.scrubber-active #scrubber-board{min-height:420px!important}
+  html body.purge-active .purge-console{grid-template-columns:1fr!important}
+  html body.purge-active #purge-machine{min-height:360px!important}
+  html body.purge-active .purge-control{min-height:340px!important}
+  html body.air-active .air-control-rail{display:grid!important;grid-template-columns:1fr 1fr!important;width:100%!important;max-width:100%!important;gap:8px!important;padding:9px!important}
+  html body.air-active .air-control-selection,html body.air-active #air-control-feedback{grid-column:1/-1!important}
+  html body.air-active #air-machine{min-height:360px!important}
+  html body.demister-active #demister-machine{min-height:420px!important}
+  html body[data-view=player][class*="-active"] .gas-monitor{width:100%!important;max-width:100%!important;grid-template-columns:1fr 1fr!important;padding:12px!important}
+  html body[data-view=player][class*="-active"] #error{min-height:20px!important;font-size:11px!important}
+
+  html body[data-view=screen]{overflow-x:hidden!important;overflow-y:auto!important}
+  html body[data-view=screen] main.shared{width:100%!important;height:auto!important;min-height:100dvh!important;display:grid!important;grid-template-rows:auto auto auto auto auto!important;gap:14px!important;padding:24px 18px 48px!important;background-size:cover!important;background-attachment:fixed!important;overflow:visible!important}
+  html body[data-view=screen] main.shared>header{min-height:90px!important;align-items:flex-start!important;gap:10px!important}
+  html body[data-view=screen] main.shared>header h1{max-width:220px;font-size:34px!important;line-height:1!important}
+  html body[data-view=screen] main.shared .session{min-width:108px!important;font-size:10px!important}
+  html body[data-view=screen] .cabin-wrap{width:100%!important;height:auto!important;min-height:320px!important;display:block!important;padding:8px!important}
+  html body[data-view=screen] .cabin{width:100%!important;height:auto!important;min-height:280px!important;max-height:none!important;display:block!important}
+  html body[data-view=screen] .floorplan-note{padding:8px 0 0!important;font-size:10px!important}
+  html body[data-view=screen] .station-overview{width:100%!important;display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important;padding:8px 0!important}
+  html body[data-view=screen] .station-card{min-height:62px!important;padding:7px 4px!important;grid-template-columns:32px 10px minmax(0,1fr)!important}
+  html body[data-view=screen] .station-card>img{width:32px!important;height:32px!important}
+  html body[data-view=screen] .station-card>strong{font-size:12px!important;white-space:normal!important;line-height:1.1!important}
+  html body[data-view=screen] .station-card>span:not(.status-light),html body[data-view=screen] .station-card>small{font-size:9px!important;white-space:normal!important;line-height:1.2!important}
+  html body[data-view=screen] .instruments{display:grid!important;grid-template-columns:1fr!important;gap:16px!important;padding-top:14px!important}
+  html body[data-view=screen] .instruments>section{min-height:110px!important}
+  html body[data-view=screen] .instruments .eyebrow{font-size:11px!important}
+  html body[data-view=screen] .instruments .readout strong{font-size:22px!important}
+  html body[data-view=screen] .instruments p,html body[data-view=screen] .instruments small{font-size:11px!important;line-height:1.35!important}
+  html body[data-view=screen] .result{position:static!important;margin:0!important;padding:12px 0!important;font-size:13px!important;line-height:1.45!important;white-space:normal!important}
+}

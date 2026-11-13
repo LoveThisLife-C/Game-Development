@@ -1,6 +1,14 @@
 import crypto from "node:crypto";
-import { ACTIONS, ACT1_TRANSMISSIONS, ACT2_SYSTEMS, ACT3_LOCATIONS, ACT3_REPAIR_TOOLS, ACT3_STAGE2_COSTS, ACT3_SUPPORT_ITEMS, ACT3_VALID_DEPLOYMENTS, DEBRIEF_STEPS, FIELD_EQUIPMENT, FIELD_GAMES, FINALE_BALANCE, INFORMATION_JOINS, LARK_ARCHIVE, OUTSIDE_LOCATIONS, PARTICIPANT_CARE, PLAYTEST_CRITERIA, PRE_STRIKE_ARCHIVE, READINESS_PROFILES, REPAIR_SYSTEMS, ROLES, SIGNAL_TRANSMISSIONS, STAGES, roleCard, roleIdsForCount, roleMapForCount, rolesForCount } from "./game-content.js";
+import { ACTIONS, ACT1_TRANSMISSIONS, ACT2_SYSTEMS, ACT3_LOCATIONS, ACT3_REPAIR_TOOLS, ACT3_STAGE2_COSTS, ACT3_SUPPORT_ITEMS, ACT3_VALID_DEPLOYMENTS, ACT6_HISTORY_ARCHIVE, ACT6_R12_MANUALS, ACT7_R12_CAMERAS, ACT7_R12_DIALOGUE, DEBRIEF_STEPS, FIELD_EQUIPMENT, FIELD_GAMES, FINALE_BALANCE, INFORMATION_JOINS, LARK_ARCHIVE, OUTSIDE_LOCATIONS, PARTICIPANT_CARE, PLAYTEST_CRITERIA, PRE_STRIKE_ARCHIVE, READINESS_PROFILES, REPAIR_SYSTEMS, ROLES, SIGNAL_TRANSMISSIONS, STAGES, roleCard, roleIdsForCount, roleMapForCount, rolesForCount } from "./game-content.js";
 import {ACT4_MODULES,act4Procedure,createAct4Board,verifyAct4Module} from "./act4-content.js";
+import {
+  applyAction as applyAct5StationAction,
+  advanceSimulation as advanceAct5Simulation,
+  createGame as createAct5Game,
+  getActionError as getAct5ActionError,
+  getGameResult as getAct5Result,
+  getPublicState as getAct5PublicState,
+} from "./act5/engine.js";
 
 const codeChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ACT1_LEAD_IN_MS = 30_016;
@@ -11,12 +19,43 @@ const ACT4_TRAVEL_MS = 8_000;
 const ACT4_RESOLVED_MS = 4_000;
 const ACT4_RETURN_MS = 5_000;
 const ACT4_MARA_REVEAL_MS = 10_000;
+const ACT5_OPENING_MS = 35_000;
+const ACT5_DURATION_SECONDS = 300;
+const ACT6_OPENING_MS = 12_000;
+const ACT7_PRESSURE_MIN = 1.00;
+const ACT7_PRESSURE_MAX = 1.30;
+const ACT6_NIGHTMARE_MS = 15_000;
+const ACT7_WALK_MS = 8_000;
+const ACT7_POWER_FAILURE_MS = 10_000;
+// The handoff deliberately reserves this value for whole-act playtesting.
+// Keep the current visual calibration as a safe development default, while
+// allowing production to tune it without changing the game implementation.
+const environmentNumber=(name,fallback)=>{const value=Number(process.env[name]??fallback);return Number.isFinite(value)?value:fallback;};
+const DEFAULT_ACT6_CONFIG=Object.freeze({
+  gasThreshold:environmentNumber("ACT5_GAS_THRESHOLD",30_000),
+  shortSeconds:environmentNumber("ACT6_SHORT_SECONDS",180),
+  longSeconds:environmentNumber("ACT6_LONG_SECONDS",240),
+  archiveSeconds:environmentNumber("ACT6_ARCHIVE_SECONDS",90),
+  warningSeconds:environmentNumber("ACT6_WARNING_SECONDS",60),
+  criticalSeconds:environmentNumber("ACT6_CRITICAL_SECONDS",30),
+});
+function validateAct6Config(input={},current=DEFAULT_ACT6_CONFIG){
+  const value=key=>Number(input[key]??current[key]),config={gasThreshold:value("gasThreshold"),shortSeconds:value("shortSeconds"),longSeconds:value("longSeconds"),archiveSeconds:value("archiveSeconds"),warningSeconds:value("warningSeconds"),criticalSeconds:value("criticalSeconds")};
+  if(!Number.isFinite(config.gasThreshold)||config.gasThreshold<0||config.gasThreshold>1_000_000)throw new Error("Act 6 gas threshold must be between 0 and 1,000,000");
+  if(!Number.isInteger(config.shortSeconds)||config.shortSeconds<120||config.shortSeconds>3600)throw new Error("Act 6 SHORT window must be 120–3600 seconds");
+  if(!Number.isInteger(config.longSeconds)||config.longSeconds<=config.shortSeconds||config.longSeconds>3600)throw new Error("Act 6 LONG window must be greater than SHORT and no more than 3600 seconds");
+  if(!Number.isInteger(config.archiveSeconds)||config.archiveSeconds<45||config.archiveSeconds>config.shortSeconds-45)throw new Error("Movement 1 must leave at least 45 seconds for R-12 manuals in the SHORT path");
+  if(!Number.isInteger(config.criticalSeconds)||config.criticalSeconds<10||config.criticalSeconds>=config.warningSeconds)throw new Error("Critical warning must be at least 10 seconds and earlier than the warning point");
+  if(!Number.isInteger(config.warningSeconds)||config.warningSeconds>=config.shortSeconds||config.warningSeconds>300)throw new Error("Warning point must be below the SHORT window and no more than 300 seconds");
+  return config;
+}
+const SAFE_DEFAULT_ACT6_CONFIG=validateAct6Config(DEFAULT_ACT6_CONFIG,{gasThreshold:30_000,shortSeconds:180,longSeconds:240,archiveSeconds:90,warningSeconds:60,criticalSeconds:30});
 const STAGE_HINTS = {
   1:"ACCOUNTED FOR = DEPARTED / A completed task or missing exception is not, by itself, evidence that someone left Blackout Ridge.",
   2:"REPAIR RULE / Assign one different failed system to every player. Each repair has one submission and no retry.",
   3:"DEPLOYMENT RULE / Choose two locations in order, one approved repair tool for each, one support item, then add Stage 1 + Stage 2 + Stage 3 filter units.",
   4:"FIELD SERVICE / Runner operates six apparatus modules. Cabin players interpret their private procedures aloud. All six modules must be complete before the shared repair clock expires.",
-  5:"CABIN AIR / No setting stays safe. Sealing raises CO₂; recirculation loads the active filter; opening or exhausting draws in more plume.",
+  5:"CABIN AIR / Choose any free work location. Stabilise future ingress, treat the plume and return when recurring equipment needs attention.",
   6:"ARCHIVE LOOP / Search or follow a lead, inspect one short record, share the useful fact, then pursue the next question. Every player must learn DISTRESS → EXTRACTION MESSAGE → RELEASE CONFIGURATION.",
   7:"GET BELOW / The active player follows the physical sequence. Players below decide independently whether to purge. The final operator must remember all three surface tasks.",
 };
@@ -39,10 +78,10 @@ export function createSession({ code = createCode(), playerCount = 7 } = {}) {
   if(![4,5,6,7].includes(playerCount))throw new Error("Blackout Ridge requires 4–7 players");
   return {
     code, facilitatorToken: token(), revision: 0, playerCount,
-    status: "lobby", stage: 0, stageStatus: "briefing", players: {}, act1Intro: null, act2Intro: null, act3Intro: null, act4Intro: null, act1ActiveTransmission: null,
+    status: "lobby", stage: 0, stageStatus: "briefing", players: {}, act1Intro: null, act2Intro: null, act3Intro: null, act4Intro: null, act5Intro: null, act6Intro: null, act1ActiveTransmission: null,
     clock: { duration: 0, remaining: 0, running: false, endAt: null },
-    reports: {}, chatMessages: [], draft: {}, hint: null, safetyPaused: false, testMode: null, fieldRun: null, repairRun: null, act3Run: null, cabinRun: null, archiveRun: null, finaleRun: null,
-    global: { upperAir: 0, trust: 0, official: 0, systems: [], systemStatus: {}, externalStatus: {}, outsidePlan: null, fieldServices: {}, respirator: "partial", evidence: [], lockKnowledge: 0, mara: "missing", correction: "none", lockRisk: false, act6InvestigationTime: null },
+    reports: {}, chatMessages: [], draft: {}, hint: null, safetyPaused: false, testMode: null, fieldRun: null, repairRun: null, act3Run: null, cabinRun: null, archiveRun: null, finaleRun: null, act6Config:{...SAFE_DEFAULT_ACT6_CONFIG},
+    global: { upperAir: 0, trust: 0, official: 0, systems: [], systemStatus: {}, externalStatus: {}, outsidePlan: null, fieldServices: {}, respirator: "partial", evidence: [], lockKnowledge: 0, mara: "missing", correction: "none", lockRisk: false, act6InvestigationTime: null, act6AllowanceClass:null },
     resources: { airHandlingBuffer: 0, safetyGuard: 0, interlockOverride: "available" },
     flags: { assumptions: {}, signal: {}, physical: {}, human: { mara_missing: true }, system: {}, correction: {} },
     interventions: {}, interventionFeedback: {}, absentRoles: {}, outcomes: {}, decisions: {}, history: [], ending: null, pendingEnding: null,
@@ -59,7 +98,8 @@ function ensureSession(session) {
   for (const group of ["assumptions","signal","physical","human","system","correction"]) session.flags[group] ||= {};
   session.interventionFeedback ||= {}; session.absentRoles ||= {}; session.decisions ||= {}; session.chatMessages ||= [];
   session.testMode ??= null;
-  session.fieldRun ??= null; session.repairRun ??= null; session.act3Run ??= null; session.cabinRun ??= null; session.archiveRun ??= null; session.finaleRun ??= null; session.global.systemStatus ||= {}; session.global.externalStatus ||= {}; session.global.outsidePlan ??= null; session.global.fieldServices ||= {}; session.global.act6InvestigationTime ??= null; session.pendingEnding ??= null;
+  session.fieldRun ??= null; session.repairRun ??= null; session.act3Run ??= null; session.cabinRun ??= null; session.archiveRun ??= null; session.finaleRun ??= null; session.act6Config=validateAct6Config(session.act6Config||SAFE_DEFAULT_ACT6_CONFIG);session.global.systemStatus ||= {}; session.global.externalStatus ||= {}; session.global.outsidePlan ??= null; session.global.fieldServices ||= {}; session.global.act6InvestigationTime ??= null;session.global.act6AllowanceClass??=null; session.pendingEnding ??= null;
+  if(session.finaleRun?.phase&&!session.finaleRun.crew)initialiseFinaleExposure(session,session.finaleRun);
   session.safetyBriefed ??= false; session.debrief ||= { currentStep: 1, notes: {}, firstSteps: {}, profileSignals: [] }; session.debrief.notes ||= {}; session.debrief.firstSteps ||= {}; session.debrief.profileSignals ||= []; session.debrief.currentStep ||= 1;
   session.playtest ||= { ratings: {}, notes: "", disposition: "unreviewed", updatedAt: null }; session.playtest.ratings ||= {}; session.playtest.notes ||= ""; session.playtest.disposition ||= "unreviewed"; session.playtest.updatedAt ??= null;
   session.metrics ||= { startedAt: null, endedAt: null, contributions: {} }; session.metrics.startedAt ??= null; session.metrics.endedAt ??= null; session.metrics.contributions ||= {};
@@ -67,8 +107,10 @@ function ensureSession(session) {
   session.act2Intro ??= null;
   session.act3Intro ??= null;
   session.act4Intro ??= null;
+  session.act5Intro ??= null;
+  session.act6Intro ??= null;
   session.act1ActiveTransmission ??= null;
-  if(session.stage===5&&session.stageStatus==="live"&&!session.cabinRun)initialiseCabinRun(session);
+  if(session.stage===5&&session.stageStatus==="live"&&!session.cabinRun?.engine)initialiseCabinRun(session);
   if(session.stage===6&&session.stageStatus==="live"&&!session.archiveRun)initialiseArchiveRun(session);
   if(session.stage===7&&session.stageStatus==="live"&&!session.finaleRun)initialiseFinaleRun(session);
   return session;
@@ -366,15 +408,17 @@ function startStage(session, stage) {
   if (stage === 5) initialiseCabinRun(session);
   if (stage === 6) initialiseArchiveRun(session);
   if (stage === 7) session.pendingEnding = null;
-  const duration=stage===6&&session.global.act6InvestigationTime?session.global.act6InvestigationTime:definition.duration;
+  const duration=stage===5?ACT5_DURATION_SECONDS:stage===6&&session.global.act6InvestigationTime?session.global.act6InvestigationTime:definition.duration;
   const now=Date.now();
   session.act1Intro=stage===1?{startedAt:now,endsAt:now+ACT1_LEAD_IN_MS}:null;
   session.act2Intro=stage===2?{startedAt:now,endsAt:now+ACT2_OPENING_MS}:null;
   session.act3Intro=stage===3?{startedAt:now,endsAt:now+ACT3_OPENING_MS}:null;
   session.act4Intro=null;
+  session.act5Intro=stage===5?{startedAt:now,endsAt:now+ACT5_OPENING_MS}:null;
+  session.act6Intro=stage===6?{startedAt:now,endsAt:now+ACT6_OPENING_MS}:null;
   if(stage===2)session.repairRun.planningStartedAt=now+ACT2_OPENING_MS;
   session.act1ActiveTransmission=null;
-  session.clock = { duration, remaining: duration, running: true, endAt: now + duration * 1000 + (stage===1?ACT1_LEAD_IN_MS:stage===2?ACT2_OPENING_MS:stage===3?ACT3_OPENING_MS:0) };
+  session.clock = { duration, remaining: duration, running: stage!==6, endAt: stage===6?null:now + duration * 1000 + (stage===1?ACT1_LEAD_IN_MS:stage===2?ACT2_OPENING_MS:stage===3?ACT3_OPENING_MS:stage===5?ACT5_OPENING_MS:0) };
   if(stage===7)initialiseFinaleRun(session);
   bump(session, `Stage ${stage} started: ${definition.title}`);
   if ([4,7].includes(stage)) advanceAir(session, `${definition.kicker} pressure`);
@@ -410,97 +454,81 @@ function cabinRoles(session){
   return present.length?present:activeRoleIds(session.playerCount);
 }
 function initialiseCabinRun(session, now=Date.now()){
-  const rotation=cabinRoles(session),purgeAvailable=session.global.fieldServices.upper_ridge_service==="restored";
-  session.cabinRun={
-    active:true,startedAt:now,lastTickAt:now,rotation,turnIndex:0,moves:[],
-    controls:{intake:"metered",airflow:"recirculate",filter:"a"},
-    toxin:12,co2:22,filterLoad:{a:8,b:8},outside:38,
-    purgeAvailable,purgeRemaining:purgeAvailable?2:0,
-    performanceTotal:0,performanceSeconds:0,lastBand:"breathable",
-  };
+  const upperRidgeRestored=session.global.fieldServices.upper_ridge_service==="restored";
+  const airQuality=session.global.systemStatus.air_quality==="working"?"WORKING":"BROKEN";
+  const game=createAct5Game({UPPER_RIDGE_SERVICE:upperRidgeRestored?"RESTORED":"NOT_RESTORED",airQuality,duration:ACT5_DURATION_SECONDS});
+  game.status="ready";
+  session.cabinRun={active:true,startedAt:now,lastTickAt:now+ACT5_OPENING_MS,engine:game,preFlushAirborneGas:null,legacyHoldTriggered:false};
 }
-function cabinHealth(run){
-  const activeLoad=run.filterLoad[run.controls.filter];
-  return clamp(100-run.toxin*.9-Math.max(0,run.co2-28)*1.15-Math.max(0,activeLoad-82)*.55,0,100);
-}
-function cabinBand(run){const health=cabinHealth(run);return health>=68?"breathable":health>=42?"strained":"critical";}
 function tickCabin(session,now=Date.now()){
   const run=session.cabinRun;
   if(session.stage!==5||session.stageStatus!=="live"||!run?.active||!session.clock.running)return false;
+  if(session.act5Intro?.endsAt>now)return false;
+  if(run.engine.status==="ready")run.engine.status="running";
   const seconds=Math.max(0,Math.min((now-run.lastTickAt)/1000,10));
-  if(seconds<.45)return false;
-  const c=run.controls,active=c.filter,other=active==="a"?"b":"a",load=run.filterLoad[active];
-  const filterEfficiency=c.airflow==="recirculate"?Math.max(.004,.055*(1-load/110)):0;
-  let toxinRate=.04+run.outside*.001+(c.intake==="sealed"?-.018:c.intake==="metered"?.035:.09)-filterEfficiency;
-  if(c.airflow==="exhaust")toxinRate+=c.intake==="open"?.04:.024;
-  if(c.airflow==="idle")toxinRate+=.028;
-  const co2Rate=(c.intake==="sealed"?.095:c.intake==="metered"?.025:-.075)+(c.airflow==="exhaust"?-.065:c.airflow==="idle"?.025:.02);
-  run.outside=clamp(run.outside+.22*seconds,38,100);
-  run.toxin=clamp(run.toxin+Math.max(.02,toxinRate)*seconds,0,100);
-  run.co2=clamp(run.co2+co2Rate*seconds,10,100);
-  run.filterLoad[active]=clamp(load+(c.airflow==="recirculate"?.32:-.025)*seconds,0,100);
-  run.filterLoad[other]=clamp(run.filterLoad[other]-.055*seconds,0,100);
-  const health=cabinHealth(run);
-  run.performanceTotal+=health*seconds;run.performanceSeconds+=seconds;run.lastTickAt=now;
-  const band=cabinBand(run);
-  if(band!==run.lastBand){run.lastBand=band;bump(session,`Cabin air changed to ${band.toUpperCase()}`);}else touch(session);
+  if(seconds<.04)return false;
+  advanceAct5Simulation(run.engine,seconds);
+  run.lastTickAt=now;
+  touch(session);
   return true;
 }
-function submitCabinMove(session,viewer,payload){
+function act5PlayerId(session,role){
+  const index=activeRoleIds(session.playerCount).indexOf(role);
+  return index<0?null:String(index+1);
+}
+function submitAct5StationAction(session,viewer,payload){
   const run=session.cabinRun;
-  if(session.stage!==5||session.stageStatus!=="live"||!run?.active)throw new Error("The cabin-air game is not active");
+  if(session.stage!==5||session.stageStatus!=="live"||!run?.active||!run.engine)throw new Error("The Act 5 cabin game is not active");
+  if(viewer.kind!=="player")throw new Error("Only a player terminal can operate an Act 5 work location");
+  if(session.act5Intro?.endsAt>Date.now())throw new Error("Act 5 work locations unlock when the opening sequence ends");
   if(!session.clock.running)throw new Error("Cabin controls are paused");
   tickCabin(session,Date.now());
-  const rotation=cabinRoles(session),active=rotation[run.turnIndex%rotation.length];
-  if(viewer.kind!=="facilitator"&&viewer.role!==active)throw new Error(`Wait for ${roleName(session,active)} to make the next move`);
-  let description="";
-  if(payload.control==="purge"){
-    if(!run.purgeAvailable)throw new Error("Emergency Purge is offline because Upper Ridge service was not restored");
-    if(run.purgeRemaining<1)throw new Error("Emergency Purge capacity is exhausted");
-    const aligned=run.controls.intake==="sealed"&&run.controls.airflow==="recirculate";
-    const partial=run.controls.intake!=="open"&&run.controls.airflow!=="exhaust";
-    const reduction=aligned?16:partial?10:6;
-    run.toxin=Math.max(5,run.toxin-reduction);run.co2=Math.max(14,run.co2-(aligned?3:1));run.purgeRemaining--;
-    description=`Emergency Purge used (${reduction}-point toxin reduction; ${run.purgeRemaining} charge${run.purgeRemaining===1?"":"s"} left)`;
-  }else{
-    const control=String(payload.control||""),value=String(payload.value||"");
-    if(!cabinControlValues[control]?.has(value))throw new Error("Cabin control move is invalid");
-    if(run.controls[control]===value)throw new Error("Choose a control state that changes the cabin configuration");
-    run.controls[control]=value;
-    if(control==="intake"&&value==="open")run.toxin=clamp(run.toxin+1.5,0,100);
-    if(control==="intake"&&value==="sealed")run.co2=clamp(run.co2+1,0,100);
-    if(control==="airflow"&&value==="exhaust")run.toxin=clamp(run.toxin+1,0,100);
-    description=`${control.toUpperCase()} set to ${value.replaceAll("_"," ").toUpperCase()}`;
-  }
-  run.moves.push({at:Date.now(),role:active,control:payload.control,value:payload.value||null,health:round1(cabinHealth(run))});
-  run.turnIndex=(run.turnIndex+1)%rotation.length;run.rotation=rotation;
-  recordContribution(session,active,"cabinMoves");bump(session,`${roleName(session,active)}: ${description}`);
+  const playerId=act5PlayerId(session,viewer.role),action=payload?.action;
+  const rejection=getAct5ActionError(run.engine,playerId,action);
+  if(rejection)throw Object.assign(new Error(rejection.message),{code:rejection.code});
+  applyAct5StationAction(run.engine,playerId,action);
+  recordContribution(session,viewer.role,"cabinActions");
+  touch(session);
 }
 function cabinPublicState(session,viewer){
   const run=session.cabinRun;if(!run)return null;
-  run.rotation=cabinRoles(session);
-  const exact=session.global.systemStatus.air_quality==="working";
-  const activeRole=(run.rotation||[])[run.turnIndex%(run.rotation?.length||1)]||null;
-  const visible=value=>exact?round1(value):value<30?"LOW":value<60?"RISING":value<82?"HIGH":"CRITICAL";
-  return {active:run.active,controls:{...run.controls},outside:visible(run.outside),toxin:visible(run.toxin),co2:visible(run.co2),filterLoad:{a:visible(run.filterLoad.a),b:visible(run.filterLoad.b)},health:exact?round1(cabinHealth(run)):cabinBand(run).toUpperCase(),band:cabinBand(run),exactMonitoring:exact,purgeAvailable:run.purgeAvailable,purgeRemaining:run.purgeRemaining,activeRole,activeName:roleName(session,activeRole),canAct:run.active&&(viewer.kind==="facilitator"||viewer.kind==="player"&&viewer.role===activeRole),moveCount:run.moves.length,recentMoves:run.moves.slice(-5).map(move=>({...move}))};
+  const role=viewer.kind==="facilitator"?"admin":viewer.kind==="player"?"player":"screen";
+  return {active:run.active,playerId:viewer.kind==="player"?act5PlayerId(session,viewer.role):null,engine:getAct5PublicState(run.engine,role),preFlushAirborneGas:run.preFlushAirborneGas,legacyHoldTriggered:run.legacyHoldTriggered};
 }
 function initialiseArchiveRun(session,now=Date.now()){
-  session.archiveRun={phase:"history",openedAt:now,technicalOpenedAt:null};
+  session.archiveRun={phase:"opening",openedAt:null,nightmareAt:null,nightmareStartedAt:null,nightmareEndsAt:null,technicalOpenedAt:null};
 }
 function refreshArchivePhase(session,now=Date.now()){
   const run=session.archiveRun;
   if(session.stage!==6||session.stageStatus!=="live"||!run||run.phase==="technical")return false;
-  if(remaining(session.clock,now)>session.clock.duration/2)return false;
-  run.phase="technical";run.technicalOpenedAt=now;
-  bump(session,"R-12 technical archive unlocked: learn the final surface procedure");
+  if(run.pausedCinematic)return false;
+  if(run.phase==="opening"){
+    if(session.act6Intro?.endsAt>now)return false;
+    run.phase="history";run.openedAt=now;run.nightmareAt=now+session.act6Config.archiveSeconds*1000;
+    session.clock.running=true;session.clock.endAt=now+session.clock.remaining*1000;
+    bump(session,"Legacy Hold reveal complete; the six-page Lark Shift archive is open");
+    return true;
+  }
+  if(run.phase==="nightmare"){
+    if(now<run.nightmareEndsAt)return false;
+    run.phase="technical";run.technicalOpenedAt=now;
+    session.clock.running=true;session.clock.endAt=now+session.clock.remaining*1000;
+    bump(session,"The nightmare recedes; R-12 technical archive unlocked");
+    return true;
+  }
+  if(now<run.nightmareAt)return false;
+  run.phase="nightmare";run.nightmareStartedAt=now;run.nightmareEndsAt=now+ACT6_NIGHTMARE_MS;
+  session.clock.remaining=remaining(session.clock,now);session.clock.running=false;session.clock.endAt=null;
+  bump(session,"The Lark Shift returns through the live station feed");
   return true;
 }
 function archivePublicState(session){
   const run=session.archiveRun;if(!run)return null;
   const exactDeadline=session.global.systemStatus.air_quality==="working";
-  const phases=run.phase==="technical"?["history","technical"]:["history"];
-  const documents=LARK_ARCHIVE.filter(item=>phases.includes(item.phase)).map(item=>({...item,tags:[...item.tags]}));
-  return {phase:run.phase,exactDeadline,documents,historyCount:LARK_ARCHIVE.filter(item=>item.phase==="history").length,technicalCount:LARK_ARCHIVE.filter(item=>item.phase==="technical").length,purgeAvailable:session.global.fieldServices.upper_ridge_service==="restored",checklist:["DISTRESS","EXTRACTION MESSAGE","RELEASE CONFIGURATION"]};
+  const source=run.phase==="technical"?ACT6_R12_MANUALS:ACT6_HISTORY_ARCHIVE;
+  const documents=source.map(item=>({...item,tags:[...item.tags]}));
+  const seconds=remaining(session.clock),warning=seconds<=session.act6Config.warningSeconds,critical=seconds<=session.act6Config.criticalSeconds;
+  return {phase:run.phase,exactDeadline,warning,critical,allowanceClass:session.global.act6AllowanceClass||"TEST",documents,historyCount:ACT6_HISTORY_ARCHIVE.length,technicalCount:ACT6_R12_MANUALS.length,checklist:["ACCESS HATCH","CHAMBER SEAL","EMERGENCY PURGE"],navigation:documents.map(item=>({id:item.id,title:item.title,type:item.type})),opening:run.phase==="opening"?{startedAt:session.act6Intro?.startedAt,endsAt:session.act6Intro?.endsAt}:null,nightmare:run.phase==="nightmare"?{startedAt:run.nightmareStartedAt,endsAt:run.nightmareEndsAt}:null};
 }
 
 function shuffledRoles(session){
@@ -517,90 +545,232 @@ function resumeFinaleTransfer(session,now=Date.now()){
   const run=session.finaleRun;if(session.stage!==7||run?.phase!=="transfer"||run.transferElapsedBeforePause===undefined)return;
   run.transferStartedAt=now-run.transferElapsedBeforePause*1000;delete run.transferElapsedBeforePause;
 }
+function pauseSharedCinematic(session,now=Date.now()){
+  if(session.stage===6&&session.archiveRun?.phase==="opening"&&session.act6Intro?.endsAt>now){session.archiveRun.pausedCinematic={phase:"opening",remaining:session.act6Intro.endsAt-now};return true;}
+  if(session.stage===6&&session.archiveRun?.phase==="nightmare"&&session.archiveRun.nightmareEndsAt>now){session.archiveRun.pausedCinematic={phase:"nightmare",remaining:session.archiveRun.nightmareEndsAt-now};return true;}
+  if(session.stage===7&&session.finaleRun?.phase==="walk"&&session.finaleRun.walkEndsAt>now){session.finaleRun.pausedCinematic={phase:"walk",remaining:session.finaleRun.walkEndsAt-now};return true;}
+  if(session.stage===7&&session.finaleRun?.phase==="power_failure"&&session.finaleRun.powerFailureEndsAt>now){session.finaleRun.pausedCinematic={phase:"power_failure",remaining:session.finaleRun.powerFailureEndsAt-now};return true;}
+  return false;
+}
+function resumeSharedCinematic(session,now=Date.now()){
+  const archivePause=session.archiveRun?.pausedCinematic;
+  if(archivePause){if(archivePause.phase==="opening")session.act6Intro.endsAt=now+archivePause.remaining;else session.archiveRun.nightmareEndsAt=now+archivePause.remaining;delete session.archiveRun.pausedCinematic;return true;}
+  const finalePause=session.finaleRun?.pausedCinematic;
+  if(finalePause){if(finalePause.phase==="walk")session.finaleRun.walkEndsAt=now+finalePause.remaining;else session.finaleRun.powerFailureEndsAt=now+finalePause.remaining;delete session.finaleRun.pausedCinematic;return true;}
+  return false;
+}
 function r12Condition(run){
   const pressure=run.contamination+(100-run.reserve)*.35;
   return pressure<28?"CLEAN":pressure<65?"STRAINED":pressure<105?"HAZARDOUS":"CRITICAL";
 }
-function beginFinalePhase(session){
-  const run=session.finaleRun,current=run.order[run.currentIndex];run.currentRole=current;run.transferStep=0;run.transferMistakes=0;
-  if(run.currentIndex===run.order.length-1&&!run.surfaceCommitted){run.phase="surface";run.surfaceStartedAt=Date.now();setFinaleClock(session,FINALE_BALANCE.surfaceSeconds);bump(session,"One final operator remains above; the surface dashboard is live");}
-  else{run.phase="transfer";run.transferStartedAt=Date.now();delete run.transferElapsedBeforePause;setFinaleClock(session,FINALE_BALANCE.transferSeconds);bump(session,`${roleName(session,current)} begins the R-12 transfer`);}
+function finaleCrewRoles(session){
+  return activeRoleIds(session.playerCount).filter(role=>session.players[role]&&!session.absentRoles?.[role]);
+}
+function initialiseFinaleExposure(session,run){
+  const roles=finaleCrewRoles(session);
+  const initial=Math.round(clamp(session.global.upperAir||0,0,3)*12);
+  run.masks=Array.from({length:Math.max(1,Math.ceil((roles.length-1)/2))},(_,index)=>({id:index+1,role:null}));
+  run.crew=Object.fromEntries(roles.map((role,index)=>{const multiplier=.85+(index%7)*.05,offset=Math.round(initial*((index%3)-1)*.06);const exposure=Math.max(0,initial+offset);return [role,{role,initialExposure:exposure,exposure,multiplier,maskId:null,requestingMask:false,status:finaleExposureStatus(exposure)}]}));
+  run.hotspots=Object.fromEntries(roles.map(role=>[role,{}]));
+  run.dialogue=Object.fromEntries(roles.map(role=>[role,null]));
+  run.cameras=Object.fromEntries(ACT7_R12_CAMERAS.map(camera=>[camera.id,{status:"locked",arrival:camera.arrival}]));
+  run.exposureUpdatedAt=Date.now();
+}
+const R12_HOTSPOTS=new Set(["mara","cctv","receiver","manuals","console"]);
+function r12Hotspot(session,viewer,payload){
+  const run=session.finaleRun,role=viewer.role,id=String(payload?.hotspot||"");
+  if(session.stage!==7||session.stageStatus!=="live"||viewer.kind!=="player"||!run?.below.includes(role))throw new Error("Only crew inside R-12 can inspect the refuge room");
+  if(!R12_HOTSPOTS.has(id))throw new Error("Unknown R-12 hotspot");
+  run.hotspots||={};run.hotspots[role]||={};run.hotspots[role][id]={visitedAt:Date.now()};
+  bump(session,`${roleName(session,role)} inspected R-12 ${id.toUpperCase()} hotspot`);
+}
+function r12Dialogue(session,viewer,payload){
+  const run=session.finaleRun,role=viewer.role,index=Number(payload?.index);
+  if(session.stage!==7||session.stageStatus!=="live"||viewer.kind!=="player"||!run?.below.includes(role))throw new Error("Only crew inside R-12 can speak with Mara");
+  if(!Number.isInteger(index)||!ACT7_R12_DIALOGUE[index])throw new Error("Mara dialogue option is invalid");
+  run.dialogue||={};run.dialogue[role]=index;bump(session,`${roleName(session,role)} asked Mara question ${index+1}`);
+}
+function r12Camera(session,viewer,payload){
+  const run=session.finaleRun,role=viewer.role,id=Number(payload?.camera),camera=ACT7_R12_CAMERAS.find(item=>item.id===id),state=run?.cameras?.[id];
+  if(session.stage!==7||session.stageStatus!=="live"||viewer.kind!=="player"||!run?.below.includes(role))throw new Error("Only crew inside R-12 can inspect CCTV");
+  if(!camera||!state)throw new Error("CCTV feed is invalid");
+  if(run.below.length<camera.arrival)throw new Error("That CCTV event is not unlocked yet");
+  if(state.status==="locked")throw new Error("That CCTV event is not unlocked yet");
+  if(payload?.watch&&state.status==="available")state.status="offline";
+  bump(session,`${roleName(session,role)} inspected ${camera.label}`);
+}
+function finaleExposureStatus(value){
+  return value>=300?"critical":value>=180?"severe":value>=80?"compromised":"stable";
+}
+function updateFinaleExposure(session,now=Date.now()){
+  const run=session.finaleRun;if(session.stage!==7||!run?.crew)return;
+  const last=run.exposureUpdatedAt||now,seconds=Math.max(0,(now-last)/1000);if(!seconds)return;
+  for(const crew of Object.values(run.crew)){
+    if(run.below.includes(crew.role))continue;
+    const rate=(crew.maskId?0.035:0.7)*(crew.multiplier||1);
+    crew.exposure=round1(crew.exposure+seconds*rate);
+    crew.status=finaleExposureStatus(crew.exposure);
+  }
+  run.exposureUpdatedAt=now;
+}
+function releaseFinaleMask(run,role){
+  const crew=run.crew?.[role];if(!crew?.maskId)return false;
+  const mask=run.masks?.find(item=>item.id===crew.maskId);if(mask)mask.role=null;
+  crew.maskId=null;return true;
+}
+function act7Mask(session,viewer,payload){
+  const run=session.finaleRun,role=viewer.role,crew=run?.crew?.[role];
+  if(session.stage!==7||session.stageStatus!=="live"||!run||!crew)throw new Error("Mask triage is not active");
+  if(viewer.kind!=="player")throw new Error("Only a crew terminal can operate mask triage");
+  updateFinaleExposure(session,Date.now());
+  if(run.below.includes(role)||run.currentRole===role)throw new Error("This crew member is not available for cabin mask triage");
+  const action=String(payload?.action||"");
+  if(action==="request_mask"){
+    if(crew.maskId)throw new Error("A mask is already connected");
+    if(crew.requestingMask)throw new Error("Mask request already active");
+    crew.requestingMask=true;
+  } else if(action==="cancel_mask_request")crew.requestingMask=false;
+  else if(action==="release_mask"){
+    if(!releaseFinaleMask(run,role))throw new Error("No mask is connected");
+    crew.requestingMask=false;
+  } else if(action==="connect_mask"){
+    const mask=run.masks.find(item=>item.id===Number(payload.maskId));
+    if(!mask||mask.role)throw new Error("Mask unavailable");
+    if(crew.maskId)throw new Error("Release the connected mask first");
+    mask.role=role;crew.maskId=mask.id;crew.requestingMask=false;
+  } else throw new Error("Unknown mask triage action");
+  crew.status=finaleExposureStatus(crew.exposure);bump(session,`${roleName(session,role)} ${action.replaceAll("_"," ")}`);
+}
+function createAct7Mechanics(contamination,ordinal){
+  const profiles=["A","B","C","D"],correct=profiles[crypto.randomInt(profiles.length)];
+  for(let index=profiles.length-1;index>0;index--){const swap=crypto.randomInt(index+1);[profiles[index],profiles[swap]]=[profiles[swap],profiles[index]];}
+  return {phase:"keys",keys:profiles.map((profile,index)=>({id:`key-${index+1}`,profile,correct:profile===correct})),selectedKey:null,keyInserted:false,keyTurned:false,hatchOpen:0,entered:false,seal:{closure:0,closed:false,clampProgress:0,clamped:false,pressure:0,valve:"hold",misSeated:false,tested:false,passed:false},purge:{charge:0,target:Math.round(36+Math.min(42,contamination*.35)+ordinal*3),ready:true,fired:false,startedAt:null,lastShakeAt:null}};
+}
+function decayFinalePurge(session,now=Date.now()){
+  const purge=session.finaleRun?.mechanics?.purge;
+  if(session.finaleRun?.phase!=="transfer"||session.finaleRun.mechanics?.phase!=="purge"||!purge||purge.fired||!purge.lastShakeAt)return false;
+  const elapsed=Math.max(0,(now-purge.lastShakeAt)/1000);if(elapsed<.25)return false;
+  const next=Math.max(0,Math.round((purge.charge-elapsed*5)*10)/10);if(next===purge.charge)return false;
+  purge.charge=next;purge.lastShakeAt=now;touch(session);return true;
+}
+function beginFinaleDescent(session,viewer,now=Date.now()){
+  const run=session.finaleRun,role=viewer.role;
+  if(session.stage!==7||session.stageStatus!=="live"||viewer.kind!=="player"||run?.phase!=="queue"||run.currentRole)throw new Error("The transfer chamber is not available");
+  if(run.below.includes(role)||!run.crew?.[role])throw new Error("This crew member is already protected in R-12");
+  updateFinaleExposure(session,now);releaseFinaleMask(run,role);run.crew[role].requestingMask=false;
+  run.currentRole=role;run.currentOrdinal=run.arrivalOrder.length+1;run.phase="walk";run.walkStartedAt=now;run.walkEndsAt=now+ACT7_WALK_MS;run.transferStep=0;run.transferMistakes=0;
+  session.clock={duration:0,remaining:0,running:false,endAt:null};
+  bump(session,`${roleName(session,role)} claimed the transfer chamber as arrival ${run.currentOrdinal}`);
+}
+function completeFinaleWalk(session,now=Date.now()){
+  const run=session.finaleRun;if(run?.phase!=="walk"||run.pausedCinematic||now<run.walkEndsAt)return false;
+  run.phase="transfer";run.transferStartedAt=now;delete run.transferElapsedBeforePause;run.mechanics=createAct7Mechanics(run.contamination,run.currentOrdinal-1);setFinaleClock(session,FINALE_BALANCE.transferSeconds);
+  bump(session,`${roleName(session,run.currentRole)} reached the closed square upper hatch`);return true;
+}
+function act7Mechanic(session,viewer,payload){
+  const run=session.finaleRun,m=run?.mechanics;
+  if(session.stage!==7||session.stageStatus!=="live"||run?.phase!=="transfer"||!m)throw new Error("The physical transfer is not active");
+  if(viewer.kind!=="player"||viewer.role!==run.currentRole)throw new Error("Only the active player can operate the transfer chamber");
+  const action=String(payload?.action||"");
+  if(action==="select_key"){if(!m.keys.some(key=>key.id===payload.keyId))throw new Error("That key is not on the tether");m.selectedKey=payload.keyId;}
+  else if(action==="insert_key"){if(!m.selectedKey)throw new Error("Select a key profile first");m.keyInserted=true;}
+  else if(action==="turn_key"){const key=m.keys.find(item=>item.id===m.selectedKey);if(!m.keyInserted)throw new Error("Insert the selected key first");if(!key?.correct){m.keyInserted=false;m.selectedKey=null;run.transferMistakes++;throw new Error("The key profile does not match the lock");}m.keyTurned=true;m.phase="hatch";}
+  else if(action==="set_hatch"||action==="open_hatch"){if(!m.keyTurned)throw new Error("Release the upper hatch lock first");m.hatchOpen=action==="open_hatch"?1:clamp(Number(payload.value)||0,0,1);if(m.hatchOpen>=1)m.phase="enter";}
+  else if(action==="enter_hatch"){if(m.hatchOpen<1)throw new Error("The square upper hatch is not fully open");m.entered=true;m.phase="seal";}
+  else if(action==="set_close"||action==="close_hatch"){if(!m.entered)throw new Error("Enter the transfer chamber first");if((m.seal.clamped||m.seal.pressure>0)&&action==="set_close"&&Number(payload.value)<1)throw new Error("Do not reopen the hatch while the clamp or gasket is engaged");m.seal.closure=action==="close_hatch"?1:clamp(Number(payload.value)||0,0,1);m.seal.closed=m.seal.closure>=1;}
+  else if(action==="set_clamp"||action==="clamp"){if(!m.seal.closed)throw new Error("Close the hatch before clamping");if(m.seal.misSeated||m.seal.pressure>0)throw new Error("The gasket was inflated early. VENT fully to zero before clamping");m.seal.clampProgress=action==="clamp"?1:clamp(Number(payload.value)||0,0,1);m.seal.clamped=m.seal.clampProgress>=1;}
+  else if(action==="fill"){if(!m.seal.closed)throw new Error("Close the hatch before operating the gasket valve");m.seal.valve="fill";if(!m.seal.clamped)m.seal.misSeated=true;m.seal.pressure=Math.round(Math.min(ACT7_PRESSURE_MAX+.1,m.seal.pressure+.15)*100)/100;}
+  else if(action==="vent"){m.seal.valve="vent";m.seal.pressure=Math.round(Math.max(0,m.seal.pressure-.15)*100)/100;if(m.seal.pressure===0)m.seal.misSeated=false;}
+  else if(action==="hold"){m.seal.valve="hold";}
+  else if(action==="test_seal"){if(!m.seal.closed||!m.seal.clamped||m.seal.misSeated)throw new Error("Close, fully vent any early inflation, and clamp before TEST");if(m.seal.pressure<ACT7_PRESSURE_MIN||m.seal.pressure>ACT7_PRESSURE_MAX)throw new Error("Gasket pressure must remain between 1.00 and 1.30 bar");m.seal.tested=true;m.seal.passed=true;m.phase="purge";}
+  else if(action==="shake"){if(!m.seal.passed)throw new Error("Pass the chamber seal before charging purge");const now=Date.now();decayFinalePurge(session,now);m.purge.startedAt??=now;const elapsed=(now-m.purge.startedAt)/1000,assist=elapsed>30?2:elapsed>15?1.45:1;m.purge.charge=Math.min(m.purge.target,m.purge.charge+Number(payload.amount||4)*assist);m.purge.charge=Math.round(m.purge.charge*10)/10;m.purge.lastShakeAt=now;}
+  else if(action==="fire_purge"){decayFinalePurge(session,Date.now());if(m.purge.charge<m.purge.target)throw new Error("Continue shaking until the live purge target is reached");if((run.capsuleReceiverReadyAt||0)>Date.now())throw new Error("The purge receiver is still recovering");m.purge.fired=true;m.purge.ready=false;m.purge.removal=FINALE_BALANCE.purgeFullBenefit;m.phase="r12";run.capsuleReceiverReadyAt=Date.now()+10_000;run.reserve=round1(Math.max(0,run.reserve-FINALE_BALANCE.purgeReserveBaseCost-m.purge.target*FINALE_BALANCE.purgeReserveTargetCost));}
+  else if(action==="enter_r12"){if(!m.purge.fired)throw new Error("Complete one purge discharge before entering R-12");completeFinaleTransfer(session,false,Date.now());return;}
+  else throw new Error("Unknown transfer operation");
+  touch(session);
 }
 function initialiseFinaleRun(session){
-  const order=shuffledRoles(session);if(!order.length)return;
-  session.finaleRun={phase:"opening",order,currentIndex:0,currentRole:null,below:[],transfers:[],contamination:0,reserve:100,purgeAvailable:session.global.fieldServices.upper_ridge_service==="restored",purgeRemaining:session.global.fieldServices.upper_ridge_service==="restored"?FINALE_BALANCE.purgeCycles:0,purgeLockedUntil:0,lastPurgeAt:null,purges:[],surfaceDraft:{status:"operational",message:"",isolation:"engaged",authority:"secure",releaseTest:false},surfaceCommitted:null,messageRating:null,calculation:null};
-  beginFinalePhase(session);
+  const roles=finaleCrewRoles(session);if(!roles.length)return;
+  session.finaleRun={phase:"queue",roles,order:roles,baselineUpperAir:session.global.upperAir,arrivalOrder:[],currentIndex:0,currentOrdinal:0,currentRole:null,below:[],transfers:[],contamination:0,reserve:100,capsuleReceiverReadyAt:0,surfaceDraft:{red:false,white:false,blue:false,amber:false,green:false,message:""},surfaceCommitted:null,messageRating:null,calculation:null};
+  initialiseFinaleExposure(session,session.finaleRun);
+  session.clock={duration:0,remaining:0,running:false,endAt:null};
+  bump(session,"Act 7 cabin exposure active; transfer chamber open to the first volunteer");
 }
 function completeFinaleTransfer(session,timedOut=false,now=Date.now()){
   const run=session.finaleRun;if(run?.phase!=="transfer")return false;
+  updateFinaleExposure(session,now);
   const elapsed=timedOut?FINALE_BALANCE.transferSeconds:clamp(Math.ceil((now-run.transferStartedAt)/1000),1,FINALE_BALANCE.transferSeconds);
-  const added=timedOut?FINALE_BALANCE.baseTransferContamination+FINALE_BALANCE.timeContamination:Math.min(FINALE_BALANCE.baseTransferContamination+FINALE_BALANCE.timeContamination,FINALE_BALANCE.baseTransferContamination+FINALE_BALANCE.timeContamination*(elapsed/FINALE_BALANCE.transferSeconds)+run.transferMistakes*FINALE_BALANCE.mistakeContamination);
-  run.contamination=round1(run.contamination+added);run.transfers.push({role:run.currentRole,seconds:elapsed,mistakes:run.transferMistakes,contamination:round1(added),timedOut});run.below.push(run.currentRole);
+  const chamberContamination=timedOut?FINALE_BALANCE.baseTransferContamination+FINALE_BALANCE.timeContamination:Math.min(FINALE_BALANCE.baseTransferContamination+FINALE_BALANCE.timeContamination,FINALE_BALANCE.baseTransferContamination+FINALE_BALANCE.timeContamination*(elapsed/FINALE_BALANCE.transferSeconds)+run.transferMistakes*FINALE_BALANCE.mistakeContamination);
+  const purgeRemoval=timedOut?0:Number(run.mechanics?.purge?.removal||0),added=Math.max(0,chamberContamination-purgeRemoval);
+  const crew=run.crew?.[run.currentRole];if(crew){crew.exposure=round1(crew.exposure+chamberContamination*1.5+run.transferMistakes*4);crew.status=finaleExposureStatus(crew.exposure);releaseFinaleMask(run,run.currentRole);crew.requestingMask=false;}
+  run.contamination=round1(run.contamination+added);if(run.mechanics)run.mechanics.phase="complete";run.transfers.push({role:run.currentRole,ordinal:run.currentOrdinal,seconds:elapsed,mistakes:run.transferMistakes,chamberContamination:round1(chamberContamination),purgeRemoval:round1(purgeRemoval),contamination:round1(added),exposure:crew?.exposure??null,timedOut});run.below.push(run.currentRole);run.arrivalOrder.push(run.currentRole);
+  for(const camera of ACT7_R12_CAMERAS){const state=run.cameras?.[camera.id];if(state?.status==="locked"&&run.below.length>=camera.arrival)state.status="available";}
   bump(session,`${roleName(session,run.currentRole)} entered R-12; refuge air ${r12Condition(run)}`);run.currentIndex++;
-  if(run.currentIndex>=run.order.length){run.phase="adjudication";run.currentRole=null;session.clock={duration:0,remaining:0,running:false,endAt:null};if(run.messageRating)sealFinale(session);else bump(session,"R-12 sealed; facilitator extraction-message classification required");}
-  else beginFinalePhase(session);
+  run.currentRole=null;run.mechanics=null;session.clock={duration:0,remaining:0,running:false,endAt:null};
+  if(run.below.length>=run.roles.length){run.phase="power_failure";run.powerFailureStartedAt=now;run.powerFailureEndsAt=now+ACT7_POWER_FAILURE_MS;bump(session,"All active crew reached R-12; emergency power failure sequence started");}
+  else{run.phase="queue";bump(session,"Transfer chamber released for the next volunteer");}
   return true;
 }
 function submitTransferStep(session,viewer,step){
   const run=session.finaleRun;if(session.stage!==7||session.stageStatus!=="live"||run?.phase!=="transfer")throw new Error("No personnel transfer is active");
   if(viewer.kind!=="player"||viewer.role!==run.currentRole)throw new Error("Only the active player can operate the transfer route");
+  if(run.mechanics)throw new Error("Use the physical key, hatch, seal and purge controls");
   const expected=ACTIONS.transferSteps[run.transferStep]?.[0];if(step!==expected){run.transferMistakes++;bump(session,`${roleName(session,viewer.role)} lost time correcting a transfer action`);return;}
   run.transferStep++;bump(session,`${roleName(session,viewer.role)} completed transfer action ${run.transferStep} of ${ACTIONS.transferSteps.length}`);
   if(run.transferStep===ACTIONS.transferSteps.length)completeFinaleTransfer(session,false,Date.now());
 }
-function purgeR12(session,viewer,now=Date.now()){
-  const run=session.finaleRun;if(session.stage!==7||session.stageStatus!=="live"||!["transfer","surface"].includes(run?.phase))throw new Error("Active purge play has ended");
-  if(viewer.kind!=="player"||!run.below.includes(viewer.role))throw new Error("Only a player already inside R-12 can trigger purge");
-  if(!run.purgeAvailable||run.purgeRemaining<1)throw new Error("No R-12 purge cycle is available");if(run.purgeLockedUntil>now)throw new Error("R-12 purge cycle is already executing");
-  const recovery=run.lastPurgeAt===null?FINALE_BALANCE.purgeRecoverySeconds:(now-run.lastPurgeAt)/1000;
-  const factor=run.lastPurgeAt===null?1:FINALE_BALANCE.purgeMinimumFactor+(1-FINALE_BALANCE.purgeMinimumFactor)*clamp(recovery/FINALE_BALANCE.purgeRecoverySeconds,0,1);
-  const removed=round1(Math.min(run.contamination,FINALE_BALANCE.purgeFullBenefit*factor));run.contamination=round1(Math.max(0,run.contamination-removed));run.reserve=round1(Math.max(0,run.reserve-FINALE_BALANCE.purgeReserveCost));run.purgeRemaining--;run.lastPurgeAt=now;run.purgeLockedUntil=now+2000;run.purges.push({by:viewer.role,at:now,factor:round1(factor),removed,automatic:false});
-  bump(session,`R-12 purge used by ${roleName(session,viewer.role)}; ${run.purgeRemaining} shared cycle${run.purgeRemaining===1?"":"s"} remain`);
-}
 function updateSurface(session,viewer,payload){
-  const run=session.finaleRun;if(session.stage!==7||session.stageStatus!=="live"||run?.phase!=="surface")throw new Error("The final surface dashboard is not active");
-  if(viewer.kind!=="player"||viewer.role!==run.currentRole)throw new Error("Only the final surface operator can use this dashboard");
+  const run=session.finaleRun;if(session.stage!==7||session.stageStatus!=="live"||run?.phase!=="console")throw new Error("The final R-12 console is not active");
+  if(viewer.kind!=="player"||!run.below.includes(viewer.role))throw new Error("Only crew inside R-12 can use the final console");
   const next={...run.surfaceDraft};
-  if("status" in payload){if(!["operational","distress"].includes(payload.status))throw new Error("Station status configuration is invalid");next.status=payload.status;}
   if("message" in payload)next.message=String(payload.message||"").slice(0,180);
-  if("isolation" in payload){if(!["engaged","released"].includes(payload.isolation))throw new Error("Isolation configuration is invalid");next.isolation=payload.isolation;}
-  if("authority" in payload){if(!["secure","authorised"].includes(payload.authority))throw new Error("Release authority configuration is invalid");next.authority=payload.authority;}
-  if("releaseTest" in payload)next.releaseTest=payload.releaseTest===true;
-  run.surfaceDraft=next;touch(session);
+  for(const control of ["red","white","blue","amber","green"])if(payload[control]===true)next[control]=true;
+  run.surfaceDraft=next;
+  if(payload.green===true){commitSurface(session,viewer,false);return;}
+  touch(session);
 }
 function commitSurface(session,viewer,timedOut=false){
-  const run=session.finaleRun;if(run?.phase!=="surface")throw new Error("The final surface dashboard is not active");
-  if(!timedOut&&(viewer.kind!=="player"||viewer.role!==run.currentRole))throw new Error("Only the final surface operator can submit this dashboard");
-  run.surfaceCommitted={...run.surfaceDraft,timedOut,at:Date.now()};run.phase="transfer";run.transferStep=0;run.transferMistakes=0;run.transferStartedAt=Date.now();delete run.transferElapsedBeforePause;setFinaleClock(session,FINALE_BALANCE.transferSeconds);bump(session,`Final surface configuration committed${timedOut?" at timeout":""}; last transfer begins`);
+  const run=session.finaleRun;if(run?.phase!=="console")throw new Error("The final R-12 console is not active");
+  if(!timedOut&&(viewer.kind!=="player"||!run.below.includes(viewer.role)))throw new Error("Only crew inside R-12 can close the final console");
+  run.surfaceCommitted={...run.surfaceDraft,timedOut,at:Date.now()};run.phase="blackout";session.clock={duration:0,remaining:0,running:false,endAt:null};
+  if(!run.surfaceCommitted.white||!run.surfaceCommitted.message.trim())run.messageRating="none";
+  bump(session,`Final console closed${timedOut?" at reserve expiry":" by GREEN"}; all crew displays blacked out`);
 }
 function classifyMessage(session,viewer,rating){
   const run=session.finaleRun;if(viewer.kind!=="facilitator"||session.stage!==7||session.stageStatus!=="live"||!run?.surfaceCommitted)throw new Error("No committed extraction message is ready for classification");
-  if(!["effective","partial","ineffective"].includes(rating))throw new Error("Message classification is invalid");run.messageRating=rating;bump(session,`Extraction message classified ${rating.toUpperCase()} against the response rubric`);if(run.phase==="adjudication")sealFinale(session);
+  if(!["clear","partial","poor","none","effective","ineffective"].includes(rating))throw new Error("Message classification is invalid");run.messageRating=rating==="effective"?"clear":rating==="ineffective"?"poor":rating;bump(session,`Extraction message verdict saved as ${run.messageRating.toUpperCase()}`);
 }
 function finaleCalculation(session){
   const run=session.finaleRun,b=FINALE_BALANCE;
-  let automatic=0;while(run.purgeRemaining>0){run.contamination=round1(Math.max(0,run.contamination-b.purgeFullBenefit));run.reserve=round1(Math.max(0,run.reserve-b.purgeReserveCost));run.purgeRemaining--;automatic++;}
-  const finalAir=round1(clamp(100-run.contamination*.9-(100-run.reserve)*.35,0,100));
-  const occupancy=run.order.length+1;
-  const survival=Math.max(300,Math.round(b.survivalBaseSeconds+finalAir*b.survivalPerAirPoint-occupancy*b.occupancyCostSeconds));
-  const surface=run.surfaceCommitted,status=surface.status==="distress"&&session.global.systemStatus.status_beacon==="working"?"DISTRESS":"OPERATIONAL / NO ACTIVE DISTRESS";
-  const outbound=derivedCommunications(session).outbound;let message="NONE",messageDelay=b.messageNoneDelay;
-  if(outbound!=="OFF"&&run.messageRating!=="ineffective"){message=run.messageRating==="effective"&&outbound==="FULL"?"CLEAR":"DEGRADED";messageDelay=message==="CLEAR"?0:b.messageDegradedDelay+(run.messageRating==="partial"&&outbound==="DEGRADED"?300:0);}
-  const release=surface.isolation==="engaged"&&surface.authority==="authorised"&&surface.releaseTest===true?"ENABLED":"INHIBITED";
-  const rescue=b.rescueBaselineSeconds+(status==="DISTRESS"?0:b.operationalDelay)+messageDelay+(release==="ENABLED"?0:b.releaseInhibitedDelay),margin=survival-rescue;
-  const band=margin>=b.endingMargins.clean?"clean":margin>=b.endingMargins.severe?"severe":margin>=b.endingMargins.casualties?"casualties":"lark";
-  return {finalAir,survivalTime:survival,rescueTime:rescue,margin,band,status,message,release,automaticPurges:automatic,occupancy};
+  const surface=run.surfaceCommitted,outbound=derivedCommunications(session).outbound;
+  const status=surface.red&&session.global.systemStatus.status_beacon==="working"?"DISTRESS":"OPERATIONAL / NO ACTIVE DISTRESS";
+  const contentUseful=["clear","partial"].includes(run.messageRating),messageUseful=surface.white&&outbound!=="OFF"&&contentUseful;
+  const message=!surface.white||!surface.message.trim()||outbound==="OFF"?"NONE":outbound==="FULL"&&run.messageRating==="clear"?"CLEAR":"DEGRADED";
+  let rescueHours;
+  if(outbound==="FULL"&&messageUseful)rescueHours=status==="DISTRESS"?.8:1.6;
+  else if(outbound==="DEGRADED"&&messageUseful)rescueHours=status==="DISTRESS"?1.2:2;
+  else rescueHours=status==="DISTRESS"?2.4:5.3;
+  if(run.messageRating==="partial"&&messageUseful)rescueHours+=.4;
+  if(surface.blue&&messageUseful)rescueHours+=2;
+  if(!surface.blue&&!surface.green)rescueHours+=.6-(surface.amber?0.2:0);
+  const fates=run.roles.map(role=>{const exposure=run.crew[role].exposure,tolerance=Math.min(8,Math.max(.25,6-Math.max(0,exposure-80)/85));let survived=rescueHours<=tolerance&&rescueHours<=4.5;if(surface.green&&!surface.blue)survived=true;if(surface.blue&&!messageUseful)survived=false;return {role,name:roleName(session,role),exposure:round1(exposure),toleranceHours:round1(tolerance),survived};});
+  const survivors=fates.filter(item=>item.survived).length;
+  const film=surface.green&&!surface.blue?"F01":surface.blue&&!messageUseful?"F04":surface.blue&&messageUseful?(survivors?"F03":"F05"):(survivors?"F02":"F05");
+  const band=film==="F01"?"clean":film==="F04"?"lark":survivors===run.roles.length?"severe":survivors?"casualties":"lark";
+  return {film,band,status,message,outbound,messageUseful,rescueHours:round1(rescueHours),rescueTime:Math.round(rescueHours*3600),survivalTime:Math.round(4.5*3600),survivors,deaths:fates.length-survivors,fates,occupancy:run.roles.length,finalAir:round1(clamp(100-run.contamination*.9-(100-run.reserve)*.35,0,100)),release:surface.blue?"SECURE ISOLATION":"OPEN"};
 }
 function sealFinale(session){
-  const run=session.finaleRun;if(run.phase!=="adjudication"||!run.messageRating)return;run.calculation=finaleCalculation(session);run.phase="sealed";resolveStage(session,false);
-}
-function refreshFinalePurgeLock(session,now=Date.now()){
-  const run=session.finaleRun;if(session.stage!==7||!run?.purgeLockedUntil||run.purgeLockedUntil>now)return false;run.purgeLockedUntil=0;touch(session);return true;
+  const run=session.finaleRun;if(run.phase!=="blackout"||!run.messageRating)throw new Error("The blackout verdict is not ready");run.calculation=finaleCalculation(session);run.phase="sealed";resolveStage(session,false);
 }
 function finalePublicState(session,viewer){
   const run=session.finaleRun;if(!run)return null;const player=viewer.kind==="player",below=player&&run.below.includes(viewer.role),current=player&&viewer.role===run.currentRole;
-  const surfaceOperator=player&&current&&run.phase==="surface",mode=viewer.kind==="facilitator"?"facilitator":viewer.kind==="public"?"shared":below?"below":surfaceOperator?"surface":current&&run.phase==="transfer"?"transfer":"waiting";
-  return {phase:run.phase,mode,belowCount:run.below.length,total:run.order.length,currentName:run.currentRole?roleName(session,run.currentRole):null,airCondition:r12Condition(run),purgeAvailable:run.purgeAvailable,purgeRemaining:run.purgeRemaining,purgeLocked:run.purgeLockedUntil>Date.now(),canPurge:below&&["transfer","surface"].includes(run.phase)&&run.purgeRemaining>0&&run.purgeLockedUntil<=Date.now(),transfer:current&&run.phase==="transfer"?{step:run.transferStep,mistakes:run.transferMistakes,steps:ACTIONS.transferSteps.map(item=>[...item])}:null,surface:(current&&run.phase==="surface"||viewer.kind==="facilitator"&&run.phase==="surface")?{...run.surfaceDraft}:null,surfaceCommitted:viewer.kind==="facilitator"&&run.surfaceCommitted?{...run.surfaceCommitted}:null,messageNeedsRating:viewer.kind==="facilitator"&&Boolean(run.surfaceCommitted&&!run.messageRating),messageRating:viewer.kind==="facilitator"?run.messageRating:null,communicationLocked:below||surfaceOperator,calculation:viewer.kind==="facilitator"&&run.calculation?{...run.calculation}:null};
+  updateFinaleExposure(session,Date.now());
+  const mode=viewer.kind==="facilitator"?"facilitator":viewer.kind==="public"?"shared":run.phase==="blackout"?"blackout":run.phase==="power_failure"?"power_failure":run.phase==="console"&&below?"console":current&&run.phase==="walk"?"walk":current&&run.phase==="transfer"?"transfer":below?"below":"waiting";
+  const exposure=Object.values(run.crew||{}).map(crew=>({role:crew.role,exposure:viewer.kind==="facilitator"||crew.role===viewer.role?crew.exposure:null,status:crew.status,maskId:crew.maskId,requestingMask:crew.requestingMask}));
+  const hotspots=viewer.kind==="facilitator"?run.hotspots||{}:below?run.hotspots?.[viewer.role]||{}:null;
+  const command=["facilitator","public"].includes(viewer.kind)?{contamination:run.contamination,reserve:run.reserve,receiverReadyAt:run.capsuleReceiverReadyAt||0,currentRole:run.currentRole,mechanicPhase:run.mechanics?.phase||null,arrivalOrder:[...run.arrivalOrder],crew:run.roles.map(role=>({role,name:roleName(session,role),location:run.below.includes(role)?"R-12":run.currentRole===role?"TRANSFER":"CABIN",transfer:run.below.includes(role)?"COMPLETE":run.currentRole===role?(run.mechanics?.phase||run.phase).toUpperCase():"WAITING"})),transfers:run.transfers.map(item=>({role:item.role,name:roleName(session,item.role),ordinal:item.ordinal,seconds:item.seconds,mistakes:item.mistakes,contamination:item.contamination,timedOut:item.timedOut}))}:null;
+  const mechanics=current&&run.phase==="transfer"&&viewer.kind==="player"?structuredClone(run.mechanics):null;if(mechanics){mechanics.keys=mechanics.keys.map(({correct,...key})=>key);mechanics.receiverReady=(run.capsuleReceiverReadyAt||0)<=Date.now();}
+  return {phase:run.phase,mode,belowCount:run.below.length,total:run.roles.length,currentName:run.currentRole?roleName(session,run.currentRole):null,currentOrdinal:run.currentOrdinal,reserve:run.reserve,canBegin:player&&run.phase==="queue"&&!below&&!run.currentRole,walk:current&&run.phase==="walk"?{ordinal:run.currentOrdinal,startedAt:run.walkStartedAt,endsAt:run.walkEndsAt}:null,powerFailure:run.phase==="power_failure"?{startedAt:run.powerFailureStartedAt,endsAt:run.powerFailureEndsAt}:null,airCondition:r12Condition(run),masks:run.masks?.map(mask=>({id:mask.id,occupied:Boolean(mask.role),role:["facilitator","public"].includes(viewer.kind)?mask.role:null}))||[],exposure,command,hotspots,transfer:current&&run.phase==="transfer"?{step:run.transferStep,mistakes:run.transferMistakes,steps:ACTIONS.transferSteps.map(item=>[...item])}:null,mechanics,surface:run.phase==="console"&&(below||viewer.kind==="facilitator"||viewer.kind==="public")?{...run.surfaceDraft}:null,surfaceCommitted:viewer.kind==="facilitator"&&run.surfaceCommitted?{...run.surfaceCommitted}:null,messageNeedsRating:viewer.kind==="facilitator"&&Boolean(run.surfaceCommitted&&!run.messageRating&&run.surfaceCommitted.white&&run.surfaceCommitted.message.trim()),messageRating:viewer.kind==="facilitator"?run.messageRating:null,canCalculate:viewer.kind==="facilitator"&&run.phase==="blackout"&&Boolean(run.messageRating),communicationLocked:below&&!["console","power_failure"].includes(run.phase),calculation:viewer.kind==="facilitator"&&run.calculation?structuredClone(run.calculation):null,r12:below?{arrivalCount:run.below.length,dialogue:run.dialogue?.[viewer.role]??null,cameras:Object.fromEntries(ACT7_R12_CAMERAS.map(camera=>[camera.id,{...run.cameras?.[camera.id],label:camera.label}])),content:{dialogue:ACT7_R12_DIALOGUE.map(item=>({...item})),cameras:ACT7_R12_CAMERAS.map(item=>({...item}))}}:null};
 }
 
 const act3Location = id => ACT3_LOCATIONS.find(location=>location.id===id);
@@ -832,26 +1002,28 @@ export function decisionPreview(session) {
       preview.footer="No route, equipment or exposure choice is reopened in Act 4.";
     }
   } else if (stage === 5) {
-    const run=session.cabinRun,health=run?round1(cabinHealth(run)):0;
-    preview.summary = `${run?.moves.length||0} rotating moves made; cabin condition ${cabinBand(run).toUpperCase()}${run?.active?".":" / FROZEN."}`;
-    preview.keeps = [`Next control: ${roleName(session,(run?.rotation||[])[run?.turnIndex%(run?.rotation?.length||1)])}.`,`Current configuration: ${run?.controls.intake.toUpperCase()} intake / ${run?.controls.airflow.toUpperCase()} / filter ${run?.controls.filter.toUpperCase()}.`,run?.purgeAvailable?`Emergency Purge: ${run.purgeRemaining} of 2 charges remain.`:"Emergency Purge unavailable: Upper Ridge service was not restored."];
-    preview.costs = [`Cabin health estimate: ${health}/100.`,`Outside contamination continues rising; no configuration is permanently safe.`];
-    preview.ready=false;preview.footer="The act ends when the four-minute survival window expires. Sustained cabin condition—not the final control position—sets Act 6 investigation time.";
+    const view=session.cabinRun?.engine?getAct5PublicState(session.cabinRun.engine,"admin"):null;
+    const stable=Object.values(view?.stationStatus||{}).filter(item=>item.stable).length;
+    const occupied=Object.values(view?.stations||{}).filter(Boolean).length;
+    preview.summary = `${stable} of ${view?.availableStationCount||9} available stations stable; ${occupied} currently occupied.`;
+    preview.keeps = ["Every player may claim any free available station and switch at any time.","Committed physical progress persists when a player leaves.",view?.purge.available?"Cabin Emergency Purge available because Upper Ridge was restored.":"Cabin Emergency Purge offline because Upper Ridge was not restored."];
+    preview.costs = ["Gas, recurrence and unattended physics continue while stations are vacant.","Only Emergency Purge removes current airborne stock; all other stations alter future ingress or treatment."];
+    preview.ready=false;preview.footer="The authoritative five-minute window closes all stations simultaneously. Pre-flush airborne gas earns either three or four minutes for Act 6.";
   } else if (stage === 6) {
     const archive=archivePublicState(session),technical=archive?.phase==="technical";
     preview.summary = technical ? "R-12 technical archive open: teach the complete final procedure to every player." : "Lark Shift historical archive open: reconstruct what happened before the technical files unlock.";
     preview.keeps = technical
       ? ["DISTRESS changes the station status.","EXTRACTION MESSAGE names R-12, unsafe surface air and the rescue request.","RELEASE CONFIGURATION preserves isolation while arming authorised response."]
       : ["Six people entered R-12 deliberately after a gradual, unexplained deterioration.","R-12 protected them; silence and secure isolation delayed recovery.","OPERATIONAL described the relay—not whether its people were safe."];
-    preview.costs = [archive?.purgeAvailable ? "R-12 has three purge cycles; protected air is still finite." : "Upper Ridge was not restored: R-12 has no purge cycles.","The act closes automatically. Archive reading does not execute any finale action."];
+    preview.costs = ["The transfer chamber purge uses a shared serial receiver and protected-air reserve.","The act closes automatically. Archive reading does not execute any finale action."];
     preview.ready=false;
     preview.positiveLabel=technical?"EVERY PLAYER MUST LEARN":"HISTORICAL TRUTH TO RECONSTRUCT";
     preview.costLabel="FINAL CONSTRAINTS";
-    preview.footer=technical?"Any player may be the last person above. Repeat DISTRESS → EXTRACTION MESSAGE → RELEASE CONFIGURATION aloud.":"Search the short local records. The R-12 operating archive unlocks at the midpoint.";
+    preview.footer=technical?"Every player performs the same physical descent: ACCESS HATCH → CHAMBER SEAL → CAPSULE PURGE.":"Browse the six fixed records. The shared nightmare interrupts automatically without a page-completion gate.";
   } else if (stage === 7) {
     const run=session.finaleRun;
     preview.summary=run?.phase==="surface"?"The final operator is alone at the surface dashboard.":run?.phase==="adjudication"?"Everyone is sealed inside R-12; classify the committed message to reveal rescue time.":`${run?.below.length||0} of ${run?.order.length||session.playerCount} crew are inside R-12.`;
-    preview.keeps=[`R-12 air: ${r12Condition(run)}.`,run?.purgeAvailable?`${run.purgeRemaining} shared purge cycles remain.`:"R-12 purge unavailable.","Every completed transfer reaches refuge; speed changes shared contamination."];
+    preview.keeps=[`R-12 air: ${r12Condition(run)}.`,`${round1(run?.reserve??100)}% protected-air reserve remains.`,"Every completed transfer reaches refuge; speed changes shared contamination."];
     preview.costs=["Players below cannot coach people still above.","The final surface configuration determines rescue delay, not whether the last player gets below."];
     preview.ready=false;preview.footer="Act 7 advances automatically through individual transfers and the final surface sequence.";
   }
@@ -927,40 +1099,50 @@ function resolveStage(session, expired = false) {
     ];
   } else if (stage === 5) {
     tickCabin(session,Date.now());
-    const run=session.cabinRun;run.active=false;
-    const average=run.performanceSeconds?run.performanceTotal/run.performanceSeconds:cabinHealth(run);
-    const investigationTime=clamp(Math.round((180+average*1.8)/15)*15,180,360);
-    g.act6InvestigationTime=investigationTime;g.mara="located";g.lockKnowledge=Math.max(g.lockKnowledge,1);
+    const run=session.cabinRun;
+    if(run.preFlushAirborneGas===null){
+      const result=getAct5Result(run.engine) || getAct5PublicState(run.engine,"admin").debug;
+      run.preFlushAirborneGas=Number(result?.currentAirborneGas||0);
+    }
+    run.engine.status="stopped";run.active=false;run.legacyHoldTriggered=true;
+    const longWindow=run.preFlushAirborneGas<session.act6Config.gasThreshold,investigationTime=longWindow?session.act6Config.longSeconds:session.act6Config.shortSeconds;
+    g.act6InvestigationTime=investigationTime;g.act6AllowanceClass=longWindow?"LONG":"SHORT";g.mara="located";g.lockKnowledge=Math.max(g.lockKnowledge,1);
     addEvidence(session,"R-12 protected volume sealed and stable","Old plan identifies Lower Route beneath Blackout Ridge","Mara located alive in R-12");
     setFlag(session,"human","mara_below");setFlag(session,"system","r12_discovered");setFlag(session,"system","r12_access_sealed");
     headline = "R-12 reports SEALED / STABLE — Mara is alive";
-    detail = "The cabin state freezes. An automatic isolation-integrity sweep finds an auxiliary protected volume absent from the current plan. An older plan names AUXILIARY RELAY HOLD — R-12; its dormant observation feed shows Mara Venn alive inside.";
-    quality = average>=68?"strong":average>=42?"mixed":"costly";
-    decision = `${run.moves.length} rotating cabin moves; sustained condition ${round1(average)}/100; ${run.purgeAvailable?`${2-run.purgeRemaining} purge charge${2-run.purgeRemaining===1?"":"s"} used`:"purge unavailable"}.`;
-    impacts = [`Act 6 investigation window: ${investigationTime} seconds (minimum 180; maximum 360).`,`R-12 is a sealed protected hold beneath Blackout Ridge; access remains locked.`,`Mara Venn is definitively located alive inside.`,`Final cabin contamination is converted into investigation time and does not persist as a separate state.`];
+    detail = "At exactly five minutes the modern controls lock. A legacy mechanical warning closes the shutters and releases one protected-air flush. The isolation sweep then identifies AUXILIARY RELAY HOLD — R-12; its dormant observation feed confirms Mara Venn is alive inside.";
+    quality = longWindow?"strong":"costly";
+    decision = `Ten-station mitigation window closed with ${Math.round(run.preFlushAirborneGas)} pre-flush airborne gas units. Legacy Atmospheric Hold fired once.`;
+    impacts = [`Act 6 investigation window earned: ${Math.round(investigationTime/60)} minutes.`,`The legacy flush is a one-shot transition, not an eleventh station and not a modern-system repair.`,`R-12 is a sealed protected hold beneath Blackout Ridge; access remains locked.`,`Mara Venn is definitively located alive inside; the exterior plume continues.`];
   } else if (stage === 6) {
     refreshArchivePhase(session,Date.now());
-    headline = "The Lark Shift mistake is understood";
+    headline = "The Lark Shift is understood";
     detail = "R-12 saved the six from the initiating threat, but secure isolation, no extraction request and a false operational picture left them beyond authorised rescue until protected air ran out.";
     quality = "strong";
     decision = `Timed local archive investigation: ${session.clock.duration} seconds; history and R-12 operating records released in sequence.`;
-    impacts = ["The initiating cause remains unresolved; the Lark Shift are not blamed for an impossible situation.","Every transfer contaminates R-12; faster transfers reduce exposure; protected air and purge cycles are finite.",g.fieldServices.upper_ridge_service==="restored"?"Upper Ridge restored: three R-12 purge cycles will be available in Act 7.":"Upper Ridge not restored: no R-12 purge cycles will be available in Act 7.","Final procedure learned—not executed: DISTRESS → EXTRACTION MESSAGE → RELEASE CONFIGURATION.","The cabin reaches the common critical transition into Act 7."];
+    impacts = ["The initiating cause remains unresolved; the Lark Shift are not blamed for an impossible situation.","Every transfer uses the same square-hatch, chamber-seal and capsule-purge sequence.","The purge receiver and protected-air reserve persist between successive occupants.","Act 7 retains the four separate R-12 operating pages and five-control console.","The cabin reaches the common critical transition into Act 7."];
   } else if (stage === 7) {
     const c=session.finaleRun?.calculation;if(!c)throw new Error("Finale calculation is not ready");
-    const endings={clean:["CLEAN RESCUE","Hazard-response teams reach and open R-12 with a comfortable survival margin. Mara and the crew are recovered alive."],severe:["CLOSE / SEVERE RESCUE","Responders open R-12 near the survival limit. Everyone is recovered, but contamination and prolonged refuge occupancy have serious consequences."],casualties:["RESCUE WITH CASUALTIES","Responders eventually open R-12 after the safe survival window has been exceeded. The final record confirms fatalities without assigning them mechanically."],lark:["LARK SHIFT ECHO","Responders eventually reach and open R-12. The accumulated delays are catastrophic; as in 1987, they are too late."]};
-    [headline,detail]=endings[c.band];quality=c.band==="clean"?"strong":c.band==="severe"?"mixed":"costly";
-    const alive=["clean","severe"].includes(c.band),casualties=c.band==="casualties";
-    session.pendingEnding={title:headline,body:detail,band:c.band,mara:alive?"recovered":casualties?"outcome_uncertain":"deceased",crew:alive?"recovered":casualties?"casualties":"deceased",rescueOutcome:alive?"MARA AND CREW RECOVERED":casualties?"RECOVERY WITH FATALITIES":"RECOVERY TOO LATE",survivalOutcome:`R-12 SURVIVAL ${Math.ceil(c.survivalTime/60)} MIN / RESCUE ${Math.ceil(c.rescueTime/60)} MIN`,statusOutcome:`${c.status} / EXTRACTION ${c.message} / RELEASE ${c.release}`,calculation:{...c}};
-    decision=`${session.finaleRun.transfers.length} transfers; ${session.finaleRun.purges.length} active purge cycles; message ${session.finaleRun.messageRating.toUpperCase()}.`;
-    impacts=[`R-12 final air: ${c.finalAir}/100 for ${c.occupancy} occupants.`,`Safe survival window: ${Math.ceil(c.survivalTime/60)} minutes. External rescue time: ${Math.ceil(c.rescueTime/60)} minutes.`,`Outside result: ${c.status}; extraction message ${c.message}; authorised release ${c.release}.`,c.automaticPurges?`${c.automaticPurges} unused purge cycle${c.automaticPurges===1?" was":"s were"} applied optimally after seal.`:"No unused purge cycles remained at seal."];
+    const endings={
+      F01:["SHUTTERS OPEN","Exterior shutters retract while the internal refuge remains open. Human responders enter directly and every active crew member receives treatment."],
+      F02:["FORCED RESCUE","The shutters remain closed, but responders force the exterior barrier and reach R-12. Individual survival depends on exposure before treatment."],
+      F03:["THE VIGIL","A useful extraction request keeps responders at the station while secure isolation delays entry. The crew eventually recognises human voices and releases the inner barrier."],
+      F04:["LARK SHIFT REPEATS","Secure isolation remains engaged without credible proof of R-12 occupancy. Responders withdraw and later recovery repeats the fatal 1988 pattern."],
+      F05:["TOO LATE","A real rescue path reaches the refuge, but treatment arrives after every active crew member's exposure tolerance has been exceeded."],
+    };
+    [headline,detail]=endings[c.film];quality=c.film==="F01"?"strong":c.survivors?"mixed":"costly";
+    const survivorNames=c.fates.filter(item=>item.survived).map(item=>item.name),deathNames=c.fates.filter(item=>!item.survived).map(item=>item.name);
+    session.pendingEnding={title:headline,body:detail,band:c.band,film:c.film,mara:"unscored",crew:c.deaths?c.survivors?"casualties":"deceased":"recovered",rescueOutcome:`${c.survivors} SURVIVED / ${c.deaths} DIED`,survivalOutcome:`RESPONDER ARRIVAL ${c.rescueHours.toFixed(1)} H · R-12 AIR 4.5 H`,statusOutcome:`${c.status} / EXTRACTION ${c.message} / ${c.release}`,survivorNames,deathNames,calculation:{...c}};
+    decision=`${session.finaleRun.transfers.length} transfers and capsule purge discharges; message ${session.finaleRun.messageRating.toUpperCase()}.`;
+    impacts=[`R-12 final air: ${c.finalAir}/100 for ${c.occupancy} occupants.`,`Safe survival window: ${Math.ceil(c.survivalTime/60)} minutes. External rescue time: ${Math.ceil(c.rescueTime/60)} minutes.`,`Outside result: ${c.status}; extraction message ${c.message}; authorised release ${c.release}.`,`Serial transfer receiver and protected-air use persisted across all ${session.finaleRun.transfers.length} arrivals.`];
   }
 
   session.global.upperAir = clamp(session.global.upperAir, 0, 3);
   session.global.trust = clamp(session.global.trust, 0, 2);
   session.global.official = clamp(session.global.official + (expired && ![1,5,6,7].includes(stage) ? 1 : 0), 0, 3);
-  session.decisions[stage] = stage===7 ? {surface:{...session.finaleRun.surfaceCommitted},messageRating:session.finaleRun.messageRating,external:{status:session.finaleRun.calculation.status,message:session.finaleRun.calculation.message,release:session.finaleRun.calculation.release},finalAir:session.finaleRun.calculation.finalAir,survivalTime:session.finaleRun.calculation.survivalTime,rescueTime:session.finaleRun.calculation.rescueTime,endingBand:session.finaleRun.calculation.band} : stage===6 ? {investigationWindow:session.clock.duration} : stage===5 ? {moves:session.cabinRun.moves.map(move=>({...move})),act6InvestigationTime:session.global.act6InvestigationTime,purgeAvailable:session.cabinRun.purgeAvailable,purgeUsed:(session.cabinRun.purgeAvailable?2:0)-session.cabinRun.purgeRemaining} : stage===4 ? {runner:d.runner,route:[...(session.fieldRun?.route||[])],results:(session.fieldRun?.results||[]).map(result=>({locationId:result.locationId,success:result.success,instruction:result.instruction,action:result.action,expired:Boolean(result.expired)}))} : stage===3 ? {...session.global.outsidePlan,FIELD_EQUIPMENT:[...session.global.outsidePlan.FIELD_EQUIPMENT],resolution:session.act3Run?.resolution?.mode} : { ...d };
+  session.decisions[stage] = stage===7 ? {surface:{...session.finaleRun.surfaceCommitted},messageRating:session.finaleRun.messageRating,external:{status:session.finaleRun.calculation.status,message:session.finaleRun.calculation.message,release:session.finaleRun.calculation.release},finalAir:session.finaleRun.calculation.finalAir,survivalTime:session.finaleRun.calculation.survivalTime,rescueTime:session.finaleRun.calculation.rescueTime,endingBand:session.finaleRun.calculation.band,film:session.finaleRun.calculation.film,fates:structuredClone(session.finaleRun.calculation.fates)} : stage===6 ? {investigationWindow:session.clock.duration} : stage===5 ? {preFlushAirborneGas:session.cabinRun.preFlushAirborneGas,act6InvestigationTime:session.global.act6InvestigationTime,legacyAtmosphericHold:true,stationStatus:getAct5PublicState(session.cabinRun.engine,"screen").stationStatus} : stage===4 ? {runner:d.runner,route:[...(session.fieldRun?.route||[])],results:(session.fieldRun?.results||[]).map(result=>({locationId:result.locationId,success:result.success,instruction:result.instruction,action:result.action,expired:Boolean(result.expired)}))} : stage===3 ? {...session.global.outsidePlan,FIELD_EQUIPMENT:[...session.global.outsidePlan.FIELD_EQUIPMENT],resolution:session.act3Run?.resolution?.mode} : { ...d };
   session.stageStatus = "resolved"; session.clock.remaining = remaining(session.clock); session.clock.running = false; session.clock.endAt = null;
-  if (expired) impacts.unshift(stage === 1 ? "Time expired: unanswered records closed as unresolved; no correctness result was shown." : stage===5 ? "The cabin window ended: sustained performance was converted into investigation time before the integrity sweep." : stage===6 ? "The investigation window closed on schedule; execution moves to Act 7." : "Time expired: official pressure advanced before the plan resolved.");
+  if (expired) impacts.unshift(stage === 1 ? "Time expired: unanswered records closed as unresolved; no correctness result was shown." : stage===5 ? "Five minutes elapsed: every station locked before the one-shot Legacy Atmospheric Hold transition." : stage===6 ? "The investigation window closed on schedule; the facilitator now releases Act 7." : "Time expired: official pressure advanced before the plan resolved.");
   session.outcomes[stage] = { headline, detail, quality, expired, decision, impacts, next: STAGES[stage]?.story?.next || "The incident continues.", at: Date.now() };
   bump(session, `Stage ${stage} resolved: ${headline}`);
 }
@@ -1055,6 +1237,23 @@ function startAct4Test(session){
   startStage(session,4);
   beginFieldRun(session);
   bump(session,"Direct Act 4 test started with CAM-01 → RX-01 and a six-minute allowance");
+}
+
+function startAct5Test(session){
+  if(Object.keys(session.players).length!==session.playerCount)throw new Error(`Connect all ${session.playerCount} crew terminals before starting the Act 5 test`);
+  session.metrics.startedAt=Date.now();session.testMode={act:5,startedAt:Date.now()};
+  session.global.systemStatus={...Object.fromEntries(ACT2_SYSTEMS.map(system=>[system.id,"working"])),air_quality:"working"};
+  session.global.fieldServices={external_inbound_path:"restored",external_outbound_path:"restored",lower_road_camera_service:"restored",upper_ridge_service:"restored"};
+  syncLegacySystems(session);startStage(session,5);bump(session,"Direct Act 5 test started with Upper Ridge service restored and all ten work locations available");
+}
+
+function startAct6Test(session){
+  if(Object.keys(session.players).length!==session.playerCount)throw new Error(`Connect all ${session.playerCount} crew terminals before starting the Act 6 test`);
+  session.metrics.startedAt=Date.now();session.testMode={act:6,startedAt:Date.now()};
+  session.global.systemStatus={...Object.fromEntries(ACT2_SYSTEMS.map(system=>[system.id,"working"])),air_quality:"working"};
+  session.global.fieldServices={external_inbound_path:"restored",external_outbound_path:"restored",lower_road_camera_service:"restored",upper_ridge_service:"restored"};
+  session.global.mara="located";session.global.act6InvestigationTime=session.act6Config.shortSeconds;session.global.act6AllowanceClass="TEST";
+  syncLegacySystems(session);startStage(session,6);bump(session,"Direct Act 6 test started with the Lark archive and R-12 technical records available");
 }
 
 function act4RunnerRequired(session,viewer){
@@ -1246,9 +1445,13 @@ export function authorize(session, suppliedToken) {
 export function applyAction(session, viewer, type, payload = {}) {
   ensureSession(session);
   if(session.stage===1&&["CHAT_MESSAGE","REPORT","INTERVENTION"].includes(type))throw new Error("This action is unavailable during the evidence-only handover");
+  if(session.stage===6&&["opening","nightmare"].includes(session.archiveRun?.phase)&&viewer.kind==="player"&&type==="CHAT_MESSAGE")throw new Error("Crew chat is locked during the synchronized Act 6 cinematic");
   if(viewer.kind==="player"&&session.absentRoles[viewer.role]&&type!=="CHAT_MESSAGE")throw new Error("This role is temporarily in observer mode");
   if (type === "START_GAME" && viewer.kind === "facilitator" && session.stage === 0) { if(Object.keys(session.players).length!==session.playerCount)throw new Error(`Connect all ${session.playerCount} crew terminals before starting`);session.metrics.startedAt=Date.now();session.testMode=null;startStage(session, 1); }
   else if(type==="START_ACT4_TEST"&&viewer.kind==="facilitator"&&session.stage===0)startAct4Test(session);
+  else if(type==="START_ACT5_TEST"&&viewer.kind==="facilitator"&&session.stage===0)startAct5Test(session);
+  else if(type==="START_ACT6_TEST"&&viewer.kind==="facilitator"&&session.stage===0)startAct6Test(session);
+  else if(type==="CONFIGURE_ACT6"&&viewer.kind==="facilitator"&&session.stage<=5){session.act6Config=validateAct6Config(payload,session.act6Config);bump(session,"Act 6 timing configuration validated and saved");}
   else if (type === "ADVANCE_STAGE" && viewer.kind === "facilitator" && session.stageStatus === "resolved" && session.stage < 7) startStage(session, session.stage + 1);
   else if (type === "CHAT_MESSAGE" && (viewer.kind === "player" || viewer.kind === "facilitator")) {
     if(session.stage===7&&viewer.kind==="player"&&(session.finaleRun?.below.includes(viewer.role)||session.finaleRun?.phase==="surface"&&session.finaleRun.currentRole===viewer.role))throw new Error("Your finale communication channel is isolated");
@@ -1270,25 +1473,34 @@ export function applyAction(session, viewer, type, payload = {}) {
     if (first) recordContribution(session, viewer.role, "reports");
     bump(session, `${ROLES[viewer.role].name} shared an assessment`);
   }
-  else if(type==="CABIN_MOVE"&&(viewer.kind==="player"||viewer.kind==="facilitator"))submitCabinMove(session,viewer,payload);
+  else if(type==="ACT5_ACTION"&&viewer.kind==="player")submitAct5StationAction(session,viewer,payload);
   else if(type==="END_CABIN_WINDOW"&&viewer.kind==="facilitator"&&session.stage===5&&session.stageStatus==="live"){
     const note=String(payload.note||"").trim().slice(0,160);if(note.length<8)throw new Error("Record why the cabin window is ending early");
     bump(session,`Facilitator technical recovery ended cabin window: ${note}`);resolveStage(session,true);
   }
   else if(type==="ADVANCE_ARCHIVE_PHASE"&&viewer.kind==="facilitator"&&session.stage===6&&session.stageStatus==="live"){
     const note=String(payload.note||"").trim().slice(0,160);if(note.length<8)throw new Error("Record why the archive phase is advancing early");
-    const value=Math.min(remaining(session.clock),Math.floor(session.clock.duration/2));session.clock.remaining=value;if(session.clock.running)session.clock.endAt=Date.now()+value*1000;
-    bump(session,`Facilitator technical recovery advanced the archive: ${note}`);refreshArchivePhase(session,Date.now());
+    const now=Date.now(),run=session.archiveRun;
+    if(run.phase==="history")run.nightmareAt=now;
+    else if(run.phase==="nightmare")run.nightmareEndsAt=now;
+    else throw new Error("The archive is already on the final R-12 manual phase");
+    bump(session,`Facilitator technical recovery advanced the archive: ${note}`);refreshArchivePhase(session,now);
   }
   else if(type==="END_ARCHIVE_WINDOW"&&viewer.kind==="facilitator"&&session.stage===6&&session.stageStatus==="live"){
     const note=String(payload.note||"").trim().slice(0,160);if(note.length<8)throw new Error("Record why the archive window is ending early");
     bump(session,`Facilitator technical recovery ended archive window: ${note}`);resolveStage(session,true);
   }
+  else if(type==="ACT7_MECHANIC")act7Mechanic(session,viewer,payload);
+  else if(type==="BEGIN_DESCENT")beginFinaleDescent(session,viewer,Date.now());
+  else if(type==="ACT7_MASK"&&viewer.kind==="player")act7Mask(session,viewer,payload);
+  else if(type==="R12_HOTSPOT")r12Hotspot(session,viewer,payload);
+  else if(type==="R12_DIALOGUE")r12Dialogue(session,viewer,payload);
+  else if(type==="R12_CAMERA")r12Camera(session,viewer,payload);
   else if(type==="TRANSFER_STEP")submitTransferStep(session,viewer,String(payload.step||""));
-  else if(type==="R12_PURGE")purgeR12(session,viewer,Date.now());
   else if(type==="UPDATE_SURFACE")updateSurface(session,viewer,payload);
   else if(type==="SUBMIT_SURFACE")commitSurface(session,viewer,false);
   else if(type==="CLASSIFY_MESSAGE")classifyMessage(session,viewer,String(payload.rating||""));
+  else if(type==="CALCULATE_ENDING"&&viewer.kind==="facilitator")sealFinale(session);
   else if (type === "UPDATE_DRAFT" && session.stageStatus === "live" && (canLead(session,viewer)||session.stage===3&&(viewer.kind==="facilitator"||viewer.kind==="player"))) { session.draft = validateDraftUpdate(session,payload); bump(session, session.stage===3?"Shared Act 3 deployment updated":"Crew plan updated"); }
   else if(type==="ACT3_TRIGGER_VOICE")triggerImpossibleVoice(session,viewer);
   else if(type==="ACT3_COMMIT_DEPLOYMENT")submitAct3Deployment(session,viewer);
@@ -1322,7 +1534,7 @@ export function applyAction(session, viewer, type, payload = {}) {
       if (session.fieldRun?.active) throw new Error("The runner and station crew must complete both locked field services");
       if (!session.fieldRun) return beginFieldRun(session);
     }
-    if(session.stage===5)throw new Error("Act 5 resolves automatically when the four-minute cabin window expires");
+    if(session.stage===5)throw new Error("Act 5 resolves automatically when the five-minute cabin window expires");
     if(session.stage===6)throw new Error("Act 6 resolves automatically when the investigation window expires");
     if(session.stage===7)throw new Error("Act 7 advances through the active player's transfer and surface controls");
     resolveStage(session, false);
@@ -1346,6 +1558,19 @@ export function applyAction(session, viewer, type, payload = {}) {
     delete session.outcomes[4];delete session.decisions[4];
     startStage(session,4);bump(session,"Act 4 restarted with the existing crew links and locked Act 3 deployment");
   }
+  else if(type==="RESTART_ACT5" && viewer.kind==="facilitator" && session.stage===5) {
+    delete session.outcomes[5];delete session.decisions[5];session.global.act6InvestigationTime=null;
+    startStage(session,5);bump(session,"Act 5 reset with the existing crew links and unchanged Act 4 service state");
+  }
+  else if(type==="RESTART_ACT6" && viewer.kind==="facilitator" && session.stage===6) {
+    delete session.outcomes[6];delete session.decisions[6];
+    startStage(session,6);bump(session,"Act 6 restarted with the existing crew links and unchanged Act 5 outcome");
+  }
+  else if(type==="RESTART_ACT7" && viewer.kind==="facilitator" && session.stage===7) {
+    const baselineUpperAir=session.finaleRun?.baselineUpperAir??Math.max(0,session.global.upperAir-1);
+    delete session.outcomes[7];delete session.decisions[7];session.ending=null;session.pendingEnding=null;session.metrics.endedAt=null;session.global.upperAir=baselineUpperAir;
+    startStage(session,7);bump(session,"Act 7 restarted with the existing crew links and unchanged Act 6 outcome");
+  }
   else if(type==="SET_DEBRIEF_STEP" && viewer.kind==="facilitator" && session.status==="ending") { const step=Number(payload.step);if(!DEBRIEF_STEPS.some(item=>item.id===step))throw new Error("Debrief step is invalid");session.debrief.currentStep=step;bump(session,`Debrief advanced to step ${step}`); }
   else if(type==="SAVE_DEBRIEF_NOTE" && viewer.kind==="facilitator" && session.status==="ending") { const step=Number(payload.step),note=String(payload.note||"").trim().slice(0,1200);if(!DEBRIEF_STEPS.some(item=>item.id===step))throw new Error("Debrief step is invalid");session.debrief.notes[step]=note;bump(session,`Debrief note saved for step ${step}`); }
   else if(type==="SAVE_FIRST_STEP" && viewer.kind==="player" && session.status==="ending") { const note=String(payload.note||"").trim().slice(0,280);if(note.length<5)throw new Error("Enter a specific first step");session.debrief.firstSteps[viewer.role]={name:viewer.name,note,at:Date.now()};bump(session,`${ROLES[viewer.role].name} recorded a workplace first step`); }
@@ -1356,12 +1581,12 @@ export function applyAction(session, viewer, type, payload = {}) {
     const disposition=String(payload.disposition||"unreviewed");if(!["unreviewed","proceed","revise","kill_reframe"].includes(disposition))throw new Error("Playtest disposition is invalid");
     session.playtest={ratings,notes:String(payload.notes||"").trim().slice(0,1600),disposition,updatedAt:Date.now()};bump(session,"Prototype playtest record saved");
   }
-  else if (type === "PAUSE" && viewer.kind === "facilitator" && session.clock.running) { const now=Date.now();if(session.stage===5)tickCabin(session,now);pauseFinaleTransfer(session,now);session.clock.remaining = remaining(session.clock,now); session.clock.running = false; session.clock.endAt = null; bump(session, "Clock paused"); }
-  else if (type === "RESUME" && viewer.kind === "facilitator" && session.stageStatus === "live" && !session.clock.running) { const now=Date.now();session.clock.running = true; session.clock.endAt = now + session.clock.remaining * 1000;if(session.stage===5&&session.cabinRun)session.cabinRun.lastTickAt=now;resumeFinaleTransfer(session,now); bump(session, "Clock resumed"); }
+  else if (type === "PAUSE" && viewer.kind === "facilitator" && (session.clock.running||pauseSharedCinematic(session,Date.now()))) { const now=Date.now();if(session.stage===5){tickCabin(session,now);if(session.cabinRun?.engine)session.cabinRun.engine.status="paused";}if(session.clock.running){pauseFinaleTransfer(session,now);session.clock.remaining = remaining(session.clock,now);session.clock.running = false;session.clock.endAt = null;session.clock.paused=true;}bump(session, "Authoritative progression paused"); }
+  else if (type === "RESUME" && viewer.kind === "facilitator" && session.stageStatus === "live" && !session.clock.running && (session.clock.paused||session.archiveRun?.pausedCinematic||session.finaleRun?.pausedCinematic)) { const now=Date.now(),cinematic=resumeSharedCinematic(session,now);if(!cinematic){session.clock.running = true;session.clock.endAt = now + session.clock.remaining * 1000;session.clock.paused=false;if(session.stage===5&&session.cabinRun){session.cabinRun.lastTickAt=Math.max(now,session.act5Intro?.endsAt||now);if(session.cabinRun.engine)session.cabinRun.engine.status="running";}resumeFinaleTransfer(session,now);}bump(session, "Authoritative progression resumed"); }
   else if (type === "ADD_TIME" && viewer.kind === "facilitator" && session.stageStatus === "live") { const value = remaining(session.clock) + 30; session.clock.remaining = value; if (session.clock.running) session.clock.endAt = Date.now() + value * 1000; bump(session, "Thirty seconds added"); }
   else if (type === "HINT" && viewer.kind === "facilitator") { session.hint = String(payload.message || STAGE_HINTS[session.stage] || "Ask what this output measures and which evidence is missing.").slice(0, 200); bump(session, "Facilitator prompt shown"); }
   else if (type === "CLEAR_HINT" && viewer.kind === "facilitator") { session.hint = null; bump(session, "Facilitator prompt cleared"); }
-  else if (type === "SAFETY" && viewer.kind === "facilitator") { const now=Date.now();session.safetyPaused = !session.safetyPaused; if (session.safetyPaused && session.clock.running) { if(session.stage===5)tickCabin(session,now);pauseFinaleTransfer(session,now);session.clock.remaining = remaining(session.clock,now); session.clock.running = false; session.clock.endAt = null; }if(session.stage===5&&session.cabinRun)session.cabinRun.lastTickAt=now; bump(session, session.safetyPaused ? "Safety pause enabled" : "Safety pause cleared"); }
+  else if (type === "SAFETY" && viewer.kind === "facilitator") { const now=Date.now();session.safetyPaused = !session.safetyPaused; if (session.safetyPaused) { pauseSharedCinematic(session,now);if(session.clock.running){if(session.stage===5){tickCabin(session,now);if(session.cabinRun?.engine)session.cabinRun.engine.status="paused";}pauseFinaleTransfer(session,now);session.clock.remaining=remaining(session.clock,now);session.clock.running=false;session.clock.endAt=null;session.clock.paused=true;} }if(session.stage===5&&session.cabinRun)session.cabinRun.lastTickAt=Math.max(now,session.act5Intro?.endsAt||now); bump(session, session.safetyPaused ? "Safety pause enabled" : "Safety pause cleared"); }
   else if(type==="SET_ABSENT" && viewer.kind==="facilitator") { const role=String(payload.role||"");if(!activeRoleIds(session.playerCount).includes(role))throw new Error("Role is invalid");session.absentRoles[role]=payload.absent!==false;bump(session,`${ROLES[role].name} marked ${session.absentRoles[role]?"temporarily absent":"present"}`); }
   else if(type==="REASSIGN_PLAYER" && viewer.kind==="facilitator") { const from=String(payload.from||""),to=String(payload.to||"");if(!session.players[from]||from===to||session.players[to]&&!session.absentRoles[to]||!activeRoleIds(session.playerCount).includes(to))throw new Error("Role reassignment is invalid");if(session.players[to])delete session.players[to];const player=session.players[from];delete session.players[from];player.role=to;session.players[to]=player;delete session.absentRoles[from];delete session.absentRoles[to];bump(session,`${player.name} reassigned from ${ROLES[from].name} to ${ROLES[to].name}`); }
   else if(type==="RESEND_CARD" && viewer.kind==="facilitator") { const role=String(payload.role||"");if(!session.players[role])throw new Error("Role is not connected");bump(session,`${ROLES[role].name} private card re-sent`); }
@@ -1391,8 +1616,11 @@ export function expireIfNeeded(session, now = Date.now()) {
     if(active!==session.act1ActiveTransmission){session.act1ActiveTransmission=active;touch(session);changed=true;}
   }
   if(tickCabin(session,now))changed=true;
+  if(session.stage===7&&session.finaleRun?.phase)updateFinaleExposure(session,now);
+  if(decayFinalePurge(session,now))changed=true;
+  if(session.stage===7&&completeFinaleWalk(session,now))changed=true;
+  if(session.stage===7&&session.finaleRun?.phase==="power_failure"&&!session.finaleRun.pausedCinematic&&session.finaleRun.powerFailureEndsAt<=now){session.finaleRun.phase="console";session.finaleRun.consoleStartedAt=now;setFinaleClock(session,60);bump(session,"Emergency control reserve active; final sixty-second console window opened");changed=true;}
   if(refreshArchivePhase(session,now))changed=true;
-  if(refreshFinalePurgeLock(session,now))changed=true;
   if(session.stage===4&&session.stageStatus==="live"&&session.fieldRun?.active&&session.fieldRun.transitionAt<=now){
     const run=session.fieldRun;
     if(run.phase==="resolved"){
@@ -1412,7 +1640,7 @@ export function expireIfNeeded(session, now = Date.now()) {
       bump(session,"Act 3 planning time expired; immediate final call opened");
     }
     else if(session.stage===7&&session.finaleRun?.phase==="transfer")completeFinaleTransfer(session,true,now);
-    else if(session.stage===7&&session.finaleRun?.phase==="surface")commitSurface(session,{kind:"facilitator"},true);
+    else if(session.stage===7&&session.finaleRun?.phase==="console")commitSurface(session,{kind:"facilitator"},true);
     else {if(session.stage===4&&session.fieldRun?.active){if(session.fieldRun.phase!=="service")return changed;return expireFieldRun(session),true;}resolveStage(session,true);}
     return true;
   }
@@ -1478,11 +1706,12 @@ export function publicState(session, viewer) {
   return {
     code: session.code, revision: session.revision, playerCount: session.playerCount,
     status: session.status, stage: session.stage, stageStatus: session.stageStatus, testMode:session.testMode?{...session.testMode}:null,
-    clock: { ...session.clock, remaining: (session.stage===1&&session.act1Intro?.endsAt>Date.now())||(session.stage===2&&session.act2Intro?.endsAt>Date.now())||(session.stage===3&&session.act3Intro?.endsAt>Date.now())||(session.stage===4&&session.act4Intro?.endsAt>Date.now())?session.clock.duration:remaining(session.clock) }, safetyPaused: session.safetyPaused,
+    clock: { ...session.clock, remaining: (session.stage===1&&session.act1Intro?.endsAt>Date.now())||(session.stage===2&&session.act2Intro?.endsAt>Date.now())||(session.stage===3&&session.act3Intro?.endsAt>Date.now())||(session.stage===4&&session.act4Intro?.endsAt>Date.now())||(session.stage===5&&session.act5Intro?.endsAt>Date.now())?session.clock.duration:remaining(session.clock),cinematicActive:Boolean((session.stage===6&&["opening","nightmare"].includes(session.archiveRun?.phase))||(session.stage===7&&["walk","power_failure"].includes(session.finaleRun?.phase))),cinematicPaused:Boolean(session.archiveRun?.pausedCinematic||session.finaleRun?.pausedCinematic) }, safetyPaused: session.safetyPaused,
     act1Intro: session.stage===1&&session.act1Intro?{...session.act1Intro}:null,
     act2Intro: session.stage===2&&session.act2Intro?{...session.act2Intro}:null,
     act3Intro: session.stage===3&&session.act3Intro?{...session.act3Intro}:null,
     act4Intro: session.stage===4&&session.act4Intro?{...session.act4Intro}:null,
+    act5Intro: session.stage===5&&session.act5Intro?{...session.act5Intro}:null,
     players: Object.fromEntries(Object.entries(session.players).map(([role, p]) => [role, { role, name: p.name, joinedAt: p.joinedAt }])),
     reports: viewer.kind === "facilitator" || viewer.role === "lead"
       ? session.reports
@@ -1501,6 +1730,7 @@ export function publicState(session, viewer) {
     fieldGame: fieldGameState(session,viewer),
     cabinRun: cabinPublicState(session,viewer),
     archive: session.stage===6 ? archivePublicState(session) : null,
+    act6Config: viewer.kind==="facilitator" ? {...session.act6Config} : undefined,
     finale: session.stage===7 ? finalePublicState(session,viewer) : null,
     communications: derivedCommunications(session),
     repairRun: session.repairRun ? { phase:session.repairRun.phase, attempts:session.repairRun.attempts, personnelLevel:session.repairRun.personnelLevel||0, available:[...session.repairRun.available], assignments:{...session.repairRun.assignments}, assignmentMethod:{...session.repairRun.assignmentMethod}, results:Object.fromEntries(Object.entries(session.repairRun.results).map(([role,result])=>[role,{systemId:result.systemId,success:result.success,at:result.at,confirmedAt:result.confirmedAt}])), traffic:session.repairRun.traffic.map(item=>({...item})) } : null,

@@ -17,6 +17,7 @@ import {
   ACT1_EVIDENCE_SCREENS,
   ACT1_TRANSMISSIONS,
   ACT2_SYSTEMS,
+  ACT6_HISTORY_ARCHIVE,
   FIELD_GAMES,
   INFORMATION_JOINS,
   INFORMATION_MATRIX,
@@ -148,8 +149,14 @@ function closePlanningAndDispatch(session,{fill=false}={}){
 
 function commitAndAdvance(session) {
   if([5,6].includes(session.stage)&&session.stageStatus==="live"){
+    if(session.stage===6&&session.archiveRun?.phase==="opening")expireIfNeeded(session,session.act6Intro.endsAt+1);
     session.clock.endAt=Date.now()-1;
     expireIfNeeded(session,Date.now());
+    if(session.stage===6&&session.archiveRun?.phase==="nightmare"){
+      expireIfNeeded(session,session.archiveRun.nightmareEndsAt+1);
+      session.clock.endAt=Date.now()-1;
+      expireIfNeeded(session,Date.now());
+    }
     if(session.stageStatus==="resolved")applyAction(session,facilitator,"ADVANCE_STAGE");
     return;
   }
@@ -165,26 +172,57 @@ function commitAndAdvance(session) {
 }
 
 function confirmEnding(session) {
+  assert.equal(session.status,"ending");
   assert.equal(session.stageStatus, "resolved");
-  assert.ok(session.pendingEnding);
-  applyAction(session, facilitator, "CONFIRM_ENDING");
+  assert.ok(session.ending);
+  assert.equal(session.pendingEnding,null);
 }
 
-function completeProductionFinale(session,{good=true,messageRating=good?"effective":"ineffective",timeouts=false,purgeAfterFirst=false}={}){
+function claimNextTransfer(session,role=session.finaleRun.roles.find(item=>!session.finaleRun.below.includes(item))){
+  const viewer=authorize(session,session.players[role].token);applyAction(session,viewer,"BEGIN_DESCENT");expireIfNeeded(session,session.finaleRun.walkEndsAt+1);return viewer;
+}
+
+function completePhysicalTransfer(session,viewer){
+  const mechanics=session.finaleRun.mechanics,key=mechanics.keys.find(item=>item.correct);
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"select_key",keyId:key.id});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"insert_key"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"turn_key"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_hatch",value:1});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"enter_hatch"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_close",value:1});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_clamp",value:1});
+  for(let index=0;index<8;index++)applyAction(session,viewer,"ACT7_MECHANIC",{action:"fill"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"hold"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"test_seal"});
+  let purge=session.finaleRun.mechanics.purge;
+  while(purge.charge<purge.target){applyAction(session,viewer,"ACT7_MECHANIC",{action:"shake",amount:4});purge=session.finaleRun.mechanics.purge;}
+  session.finaleRun.capsuleReceiverReadyAt=0;
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"fire_purge"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"enter_r12"});
+}
+
+function completeProductionFinale(session,{good=true,messageRating=good?"clear":"poor",timeouts=false,controls=null,confirm=true}={}){
   while(session.stage===7&&session.stageStatus==="live"){
     const run=session.finaleRun;
-    if(run.phase==="transfer"){
-      if(purgeAfterFirst&&run.below.length&&run.purgeRemaining){const role=run.below.at(-1);run.purgeLockedUntil=0;applyAction(session,authorize(session,session.players[role].token),"R12_PURGE");}
+    if(run.phase==="queue")claimNextTransfer(session);
+    else if(run.phase==="walk")expireIfNeeded(session,run.walkEndsAt+1);
+    else if(run.phase==="transfer"){
       if(timeouts){session.clock.endAt=1;expireIfNeeded(session,2);}
-      else{const viewer=authorize(session,session.players[run.currentRole].token);for(const step of ["harness","wheel","ladder","inner"])applyAction(session,viewer,"TRANSFER_STEP",{step});}
-    }else if(run.phase==="surface"){
-      const viewer=authorize(session,session.players[run.currentRole].token);
-      applyAction(session,viewer,"UPDATE_SURFACE",good?{status:"distress",message:"ALL CREW IN R-12. SURFACE ATMOSPHERE UNSAFE. EXTERNAL EXTRACTION REQUIRED.",isolation:"engaged",authority:"authorised",releaseTest:true}:{status:"operational",message:"",isolation:"released",authority:"secure",releaseTest:false});
-      applyAction(session,viewer,"SUBMIT_SURFACE");applyAction(session,facilitator,"CLASSIFY_MESSAGE",{rating:messageRating});
-    }else if(run.phase==="adjudication")applyAction(session,facilitator,"CLASSIFY_MESSAGE",{rating:messageRating});
+      else completePhysicalTransfer(session,authorize(session,session.players[run.currentRole].token));
+    }else if(run.phase==="power_failure")expireIfNeeded(session,run.powerFailureEndsAt+1);
+    else if(run.phase==="console"){
+      const viewer=authorize(session,session.players[run.below[0]].token);
+      const finalControls=controls||(good?{red:true,white:true,amber:true,green:true,message:"ALL CREW IN R-12. SURFACE ATMOSPHERE UNSAFE. EXTERNAL EXTRACTION REQUIRED."}:{blue:true});
+      applyAction(session,viewer,"UPDATE_SURFACE",finalControls);
+      if(!finalControls.green)applyAction(session,viewer,"SUBMIT_SURFACE");
+    }else if(run.phase==="blackout"){
+      if(!run.messageRating)applyAction(session,facilitator,"CLASSIFY_MESSAGE",{rating:messageRating});
+      applyAction(session,facilitator,"CALCULATE_ENDING");
+    }
     else break;
   }
-  return session.pendingEnding;
+  if(confirm&&session.stage===7&&session.stageStatus==="resolved"&&session.pendingEnding)applyAction(session,facilitator,"CONFIRM_ENDING");
+  return session.ending;
 }
 
 test("complete strong path reaches Clean Rescue after the Lark investigation", () => {
@@ -224,10 +262,10 @@ test("complete strong path reaches Clean Rescue after the Lark investigation", (
   completeProductionFinale(session);
   confirmEnding(session);
   assert.equal(session.status, "ending");
-  assert.equal(session.ending.title, "CLEAN RESCUE");
+  assert.equal(session.ending.title, "SHUTTERS OPEN");
   assert.equal(session.ending.calculation.status,"DISTRESS");
   assert.equal(session.ending.calculation.message,"CLEAR");
-  assert.equal(session.ending.calculation.release,"ENABLED");
+  assert.equal(session.ending.calculation.release,"OPEN");
   for (let stage = 1; stage <= 7; stage++) {
     const result = session.outcomes[stage];
     assert.ok(result.decision.length > 15, `stage ${stage} missing committed-decision explanation`);
@@ -1015,28 +1053,42 @@ test("restored external paths inherit Act 2 station-side quality", () => {
 test("Act 6 is a timed two-phase local investigation with no scored submission", () => {
   const session=createSession({code:"LARK01",playerCount:4});connectCrew(session);
   session.status="stage";session.stage=6;session.stageStatus="live";session.global.act6InvestigationTime=240;
+  session.act6Intro={startedAt:0,endsAt:12_000};
   session.global.systemStatus.air_quality="broken";session.global.fieldServices.upper_ridge_service="restored";
   session.clock={duration:240,remaining:240,running:false,endAt:null};
-  const history=publicState(session,facilitator);
+  let history=publicState(session,facilitator);
+  assert.equal(history.archive.phase,"opening");
+  expireIfNeeded(session,session.act6Intro.endsAt+1);history=publicState(session,facilitator);
   assert.equal(history.archive.phase,"history");
   assert.equal(history.archive.exactDeadline,false);
-  assert.equal(history.archive.purgeAvailable,true);
+  assert.equal(history.archive.documents.length,6);
   assert.ok(history.archive.documents.some(item=>item.id==="newsreel"&&item.audio));
   assert.ok(history.archive.documents.every(item=>item.phase==="history"));
   assert.throws(()=>applyAction(session,facilitator,"COMMIT_STAGE"),/automatically/);
   assert.throws(()=>applyAction(session,facilitator,"UPDATE_DRAFT",{invalid:"operational"}),/read-only archive/);
-  session.clock.running=true;session.clock.endAt=240_000;
+  session.archiveRun.nightmareAt=120_000;session.clock.running=true;session.clock.endAt=240_000;
   assert.equal(expireIfNeeded(session,121_000),true);
+  const nightmare=publicState(session,facilitator);
+  assert.equal(nightmare.archive.phase,"nightmare");
+  assert.equal(nightmare.clock.running,false);
+  assert.equal(expireIfNeeded(session,nightmare.archive.nightmare.endsAt+1),true);
   const technical=publicState(session,facilitator);
   assert.equal(technical.archive.phase,"technical");
-  assert.deepEqual(technical.archive.checklist,["DISTRESS","EXTRACTION MESSAGE","RELEASE CONFIGURATION"]);
+  assert.deepEqual(technical.archive.checklist,["ACCESS HATCH","CHAMBER SEAL","EMERGENCY PURGE"]);
   const archiveText=technical.archive.documents.map(item=>`${item.title} ${item.summary} ${item.detail}`).join(" ");
-  for(const phrase of ["refuge, not an escape tunnel","three shared purge cycles","sixty seconds","separate tanks","AUTHORISED RESPONSE","EXTERNAL RELEASE TEST","ISOLATION HELD","RESPONDER RELEASE ARMED","obsolete internal emergency circuit"] ) assert.match(archiveText,new RegExp(phrase,"i"));
-  assert.equal(expireIfNeeded(session,240_001),true);
+  assert.equal(technical.archive.documents.length,3);
+  for(const phrase of ["refuge, not an escape tunnel","shared serial receiver","exactly one successful capsule purge","does not purge R-12","1.00–1.30 bar","square upper hatch"] ) assert.match(archiveText,new RegExp(phrase,"i"));
+  session.clock.endAt=Date.now()-1;
+  assert.equal(expireIfNeeded(session,Date.now()),true);
+  assert.equal(session.stage,6);
   assert.equal(session.stageStatus,"resolved");
+  assert.equal(publicState(session,facilitator).facilitatorCanAdvance,true);
   assert.equal(session.global.correction,"none");
   assert.deepEqual(session.decisions[6],{investigationWindow:240});
+  assert.match(session.history.at(-1).text,/Stage 6 resolved/i);
   assert.equal("documents" in session.decisions[6],false);
+  applyAction(session,facilitator,"ADVANCE_STAGE");
+  assert.equal(session.stage,7);assert.equal(session.stageStatus,"live");assert.ok(session.finaleRun);
 });
 
 test("Act 6 archive is identical for all members and independent of inbound traffic", () => {
@@ -1046,18 +1098,18 @@ test("Act 6 archive is identical for all members and independent of inbound traf
   const facilitatorArchive=publicState(session,facilitator).archive;
   for(const role of rolesByCount[4])assert.deepEqual(publicState(session,authorize(session,session.players[role].token)).archive,facilitatorArchive);
   assert.equal(publicState(session,{kind:"public"}).signalTransmission.integrity,0);
-  assert.equal(facilitatorArchive.documents.length,LARK_ARCHIVE.filter(item=>item.phase==="history").length);
+  assert.equal(facilitatorArchive.documents.length,ACT6_HISTORY_ARCHIVE.length);
   assert.ok(existsSync(new URL("../prototype/assets/audio/act6-lark-newsreel.wav",import.meta.url)));
 });
 
-test("the finale is previewed before the facilitator confirms the final record", () => {
+test("calculating the finale opens the final consequence modal before confirmation", () => {
   const session = createSession({ code: "FINAL1", playerCount: 4 });
   connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";session.global.systemStatus.status_beacon="working";session.global.systemStatus.human_outbound="working";session.global.fieldServices.external_outbound_path="restored";session.global.fieldServices.upper_ridge_service="restored";
-  publicState(session,facilitator);completeProductionFinale(session);
-  assert.equal(session.status,"stage");
-  assert.equal(session.pendingEnding.title,"CLEAN RESCUE");
-  confirmEnding(session);
-  assert.equal(session.status,"ending");
+  publicState(session,facilitator);completeProductionFinale(session,{confirm:false});
+  assert.equal(session.status,"stage");assert.equal(session.stageStatus,"resolved");assert.equal(session.ending,null);
+  assert.equal(session.pendingEnding.title,"SHUTTERS OPEN");assert.equal(publicState(session,facilitator).facilitatorCanConfirmEnding,true);
+  applyAction(session,facilitator,"CONFIRM_ENDING");
+  assert.equal(session.status,"ending");assert.equal(session.ending.title,"SHUTTERS OPEN");assert.equal(session.pendingEnding,null);
 });
 
 test("facilitator can mark absence and reassign a connected operator with an audit trail", () => {
@@ -1236,20 +1288,21 @@ test("the impossible Act 3 transmission stays unidentified and cannot solve the 
 
 test("finale distinguishes clean rescue from a catastrophic Lark Shift echo", () => {
   const make=(code,good)=>{const session=createSession({code,playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";session.global.systemStatus.status_beacon=good?"working":"broken";session.global.systemStatus.human_outbound=good?"working":"broken";session.global.fieldServices.external_outbound_path=good?"restored":"not_restored";session.global.fieldServices.upper_ridge_service=good?"restored":"not_restored";publicState(session,facilitator);completeProductionFinale(session,{good,timeouts:!good});return session;};
-  const clean=make("COST01",true);assert.equal(clean.pendingEnding.title,"CLEAN RESCUE");assert.equal(clean.pendingEnding.calculation.release,"ENABLED");assert.ok(clean.decisions[7].survivalTime>clean.decisions[7].rescueTime);
-  const lark=make("JOIN01",false);assert.equal(lark.pendingEnding.title,"LARK SHIFT ECHO");assert.equal(lark.pendingEnding.calculation.release,"INHIBITED");assert.ok(lark.decisions[7].survivalTime<lark.decisions[7].rescueTime);
+  const clean=make("COST01",true);assert.equal(clean.ending.title,"SHUTTERS OPEN");assert.equal(clean.ending.calculation.film,"F01");assert.equal(clean.ending.calculation.release,"OPEN");
+  const lark=make("JOIN01",false);assert.equal(lark.ending.title,"LARK SHIFT REPEATS");assert.equal(lark.ending.calculation.film,"F04");assert.equal(lark.ending.calculation.release,"SECURE ISOLATION");
 });
 
-test("all four production finale bands are reachable from distinct consequence combinations",()=>{
-  const finale=(code,{beacon="working",outbound="working",path="restored",upper="not_restored",good=true,rating="effective",timeouts=false}={})=>{
+test("guide finale priority maps controls to stable F01–F05 families",()=>{
+  const finale=(code,{beacon="working",outbound="working",path="restored",upper="not_restored",good=true,rating="clear",timeouts=false,controls=null}={})=>{
     const session=createSession({code,playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";
     session.global.systemStatus.status_beacon=beacon;session.global.systemStatus.human_outbound=outbound;session.global.fieldServices.external_outbound_path=path;session.global.fieldServices.upper_ridge_service=upper;
-    publicState(session,facilitator);completeProductionFinale(session,{good,messageRating:rating,timeouts});return session.pendingEnding;
+    publicState(session,facilitator);completeProductionFinale(session,{good,messageRating:rating,timeouts,controls});return session.ending;
   };
-  assert.equal(finale("BANDC1",{upper:"restored"}).band,"clean");
-  assert.equal(finale("BANDS1",{beacon:"broken",rating:"partial"}).band,"severe");
-  assert.equal(finale("BANDX1",{timeouts:true}).band,"casualties");
-  assert.equal(finale("BANDL1",{beacon:"broken",outbound:"broken",path:"not_restored",good:false,rating:"ineffective",timeouts:true}).band,"lark");
+  assert.equal(finale("BANDC1",{controls:{green:true}}).calculation.film,"F01");
+  assert.equal(finale("BANDL1",{good:false,controls:{blue:true}}).calculation.film,"F04");
+  assert.equal(finale("BANDV1",{controls:{blue:true,white:true,message:"CREW IN R-12. UNSAFE AIR. EXTRACT US."}}).calculation.film,"F03");
+  assert.equal(finale("BANDF1",{good:false,controls:{red:true}}).calculation.film,"F02");
+  assert.equal(finale("BANDD1",{good:false,beacon:"broken",outbound:"broken",path:"not_restored",controls:{}}).calculation.film,"F05");
 });
 
 test("every supported crew size can complete all seven production acts",()=>{
@@ -1258,53 +1311,146 @@ test("every supported crew size can complete all seven production acts",()=>{
     completeHandover(session);commitAndAdvance(session);completeRepairStage(session);completeOutsidePlan(session);commitAndAdvance(session);
     update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");completeActiveFieldRun(session);
     applyAction(session,facilitator,"ADVANCE_STAGE");commitAndAdvance(session);commitAndAdvance(session);completeProductionFinale(session);
-    assert.equal(session.stage,7);assert.equal(session.stageStatus,"resolved");assert.ok(session.pendingEnding?.band);
+    assert.equal(session.stage,7);assert.equal(session.stageStatus,"resolved");assert.equal(session.status,"ending");assert.ok(session.ending?.band);
   }
 });
 
-test("Act 7 keeps random order hidden and isolates each player after transfer", () => {
+test("Act 7 accepts one voluntary claimant and isolates each player after transfer", () => {
   const session=createSession({code:"ISO701",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";publicState(session,facilitator);
-  const first=session.finaleRun.currentRole,firstViewer=authorize(session,session.players[first].token),other=rolesByCount[4].find(role=>role!==first),otherViewer=authorize(session,session.players[other].token);
-  assert.equal(publicState(session,firstViewer).finale.mode,"transfer");assert.equal(publicState(session,otherViewer).finale.mode,"waiting");
+  for(const role of rolesByCount[4])assert.equal(publicState(session,authorize(session,session.players[role].token)).finale.canBegin,true,`${role} can claim the free chamber`);
+  const first="lead",firstViewer=authorize(session,session.players[first].token),other="signal",otherViewer=authorize(session,session.players[other].token);
+  assert.equal(publicState(session,firstViewer).finale.canBegin,true);applyAction(session,firstViewer,"BEGIN_DESCENT");
+  assert.equal(publicState(session,firstViewer).finale.mode,"walk");assert.equal(publicState(session,otherViewer).finale.mode,"waiting");
   assert.equal("order" in publicState(session,{kind:"public"}).finale,false);
-  assert.throws(()=>applyAction(session,otherViewer,"TRANSFER_STEP",{step:"harness"}),/active player/);
-  applyAction(session,firstViewer,"TRANSFER_STEP",{step:"wheel"});assert.equal(session.finaleRun.transferMistakes,1);
-  for(const step of ["harness","wheel","ladder","inner"])applyAction(session,firstViewer,"TRANSFER_STEP",{step});
+  assert.throws(()=>applyAction(session,otherViewer,"BEGIN_DESCENT"),/not available/);
+  expireIfNeeded(session,session.finaleRun.walkEndsAt+1);
+  assert.throws(()=>applyAction(session,firstViewer,"TRANSFER_STEP",{step:"wheel"}),/physical key, hatch, seal and purge/i);
+  const wrong=session.finaleRun.mechanics.keys.find(item=>!item.correct);applyAction(session,firstViewer,"ACT7_MECHANIC",{action:"select_key",keyId:wrong.id});applyAction(session,firstViewer,"ACT7_MECHANIC",{action:"insert_key"});assert.throws(()=>applyAction(session,firstViewer,"ACT7_MECHANIC",{action:"turn_key"}),/does not match/i);assert.equal(session.finaleRun.transferMistakes,1);
+  completePhysicalTransfer(session,firstViewer);
   const isolated=publicState(session,firstViewer);assert.equal(isolated.finale.mode,"below");assert.equal(isolated.finale.communicationLocked,true);assert.deepEqual(isolated.chatMessages,[]);
   assert.throws(()=>applyAction(session,firstViewer,"CHAT_MESSAGE",{message:"coach"}),/isolated/);
 });
 
-test("R-12 purge is shared, finite and weaker when repeated before recovery", () => {
-  const session=createSession({code:"PURG71",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";session.global.fieldServices.upper_ridge_service="restored";publicState(session,facilitator);
-  const first=session.finaleRun.currentRole,viewer=authorize(session,session.players[first].token);for(const step of ["harness","wheel","ladder","inner"])applyAction(session,viewer,"TRANSFER_STEP",{step});
-  session.finaleRun.contamination=80;session.finaleRun.purgeLockedUntil=0;applyAction(session,viewer,"R12_PURGE");const firstRemoved=session.finaleRun.purges.at(-1).removed;
-  session.finaleRun.purgeLockedUntil=0;applyAction(session,viewer,"R12_PURGE");const earlyRemoved=session.finaleRun.purges.at(-1).removed;
-  assert.equal(session.finaleRun.purgeRemaining,1);assert.ok(earlyRemoved<firstRemoved);assert.equal(session.finaleRun.reserve,88);
+test("Act 7 physical transfer enforces key, hatch, seal pressure and purge order", () => {
+  const session=createSession({code:"PHYS07",playerCount:4});connectCrew(session);
+  session.status="stage";session.stage=7;session.stageStatus="live";session.global.fieldServices.upper_ridge_service="restored";
+  session.clock={duration:60,remaining:60,running:true,endAt:Date.now()+60000};
+  let state=publicState(session,facilitator);const role="lead",viewer=claimNextTransfer(session,role);
+  state=publicState(session,viewer);const mechanics=state.finale.mechanics;assert.equal(mechanics.keys.some(item=>"correct" in item),false);assert.equal(typeof mechanics.receiverReady,"boolean");const key=session.finaleRun.mechanics.keys.find(item=>item.correct);
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"select_key",keyId:key.id});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"insert_key"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"turn_key"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_hatch",value:.48});
+  assert.equal(publicState(session,viewer).finale.mechanics.hatchOpen,.48);
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_hatch",value:1});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"enter_hatch"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_close",value:.65});
+  assert.equal(publicState(session,viewer).finale.mechanics.seal.closed,false);
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_close",value:1});
+  assert.throws(()=>applyAction(session,viewer,"ACT7_MECHANIC",{action:"test_seal"}),/clamp|pressure/i);
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"set_clamp",value:1});
+  for(let index=0;index<8;index++)applyAction(session,viewer,"ACT7_MECHANIC",{action:"fill"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"hold"});
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"test_seal"});
+  let afterSeal=publicState(session,viewer);assert.equal(afterSeal.finale.mechanics.phase,"purge");
+  const target=afterSeal.finale.mechanics.purge.target;for(let charge=0;charge<target;charge+=4)applyAction(session,viewer,"ACT7_MECHANIC",{action:"shake",amount:4});
+  const reserveBefore=session.finaleRun.reserve;
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"fire_purge"});
+  assert.ok(session.finaleRun.reserve<reserveBefore);
+  assert.equal(publicState(session,viewer).finale.mechanics.phase,"r12");
+  applyAction(session,viewer,"ACT7_MECHANIC",{action:"enter_r12"});
+  assert.equal(session.finaleRun.below.includes(role),true);
+});
+
+test("Act 7 purge cleans only the active capsule and preserves existing R-12 load", () => {
+  const session=createSession({code:"AIR071",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";publicState(session,facilitator);
+  const viewer=claimNextTransfer(session,"lead");session.finaleRun.contamination=50;
+  completePhysicalTransfer(session,viewer);
+  const transfer=session.finaleRun.transfers[0];
+  assert.equal(session.finaleRun.contamination,50);
+  assert.ok(transfer.chamberContamination>0);
+  assert.equal(transfer.purgeRemoval,22);
+  assert.equal(transfer.contamination,0);
+});
+
+test("Act 7 CCTV events unlock by arrival, play once, and remain offline", () => {
+  const session=createSession({code:"CAM071",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";publicState(session,facilitator);
+  const first=claimNextTransfer(session,"lead");completePhysicalTransfer(session,first);
+  assert.equal(publicState(session,first).finale.r12.cameras[1].status,"locked");
+  completePhysicalTransfer(session,claimNextTransfer(session,"signal"));
+  assert.equal(publicState(session,first).finale.r12.cameras[1].status,"available");
+  assert.equal(publicState(session,first).finale.r12.cameras[2].status,"locked");
+  applyAction(session,first,"R12_CAMERA",{camera:1});
+  assert.equal(publicState(session,first).finale.r12.cameras[1].status,"available");
+  applyAction(session,first,"R12_CAMERA",{camera:1,watch:true});
+  assert.equal(publicState(session,first).finale.r12.cameras[1].status,"offline");
+  applyAction(session,first,"R12_CAMERA",{camera:1});
+  assert.equal(publicState(session,first).finale.r12.cameras[1].status,"offline");
+});
+
+test("GREEN closes the final decision immediately on the authoritative server", () => {
+  const session=createSession({code:"GRN071",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";publicState(session,facilitator);
+  for(const role of rolesByCount[4])completePhysicalTransfer(session,claimNextTransfer(session,role));
+  expireIfNeeded(session,session.finaleRun.powerFailureEndsAt+1);
+  const viewer=authorize(session,session.players.lead.token);
+  applyAction(session,viewer,"UPDATE_SURFACE",{green:true});
+  assert.equal(session.finaleRun.phase,"blackout");
+  assert.equal(session.finaleRun.surfaceCommitted.green,true);
+  assert.throws(()=>applyAction(session,viewer,"UPDATE_SURFACE",{red:true}),/not active/i);
+});
+
+test("Act 7 keeps finite masks shared and preserves individual exposure into R-12", () => {
+  const session=createSession({code:"MASK71",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";publicState(session,facilitator);
+  const current="lead",waiting="signal",viewer=authorize(session,session.players[waiting].token);
+  assert.equal(session.finaleRun.masks.length,2);
+  applyAction(session,viewer,"ACT7_MASK",{action:"connect_mask",maskId:1});
+  assert.equal(session.finaleRun.crew[waiting].maskId,1);
+  assert.equal(publicState(session,viewer).finale.masks.filter(mask=>!mask.occupied).length,1);
+  session.finaleRun.exposureUpdatedAt=Date.now()-1000;const masked=publicState(session,facilitator).finale.exposure.find(item=>item.role===waiting).exposure;
+  applyAction(session,viewer,"ACT7_MASK",{action:"release_mask"});
+  session.finaleRun.exposureUpdatedAt=Date.now()-1000;const unmasked=publicState(session,facilitator).finale.exposure.find(item=>item.role===waiting).exposure;
+  assert.ok(unmasked>masked);
+  const currentViewer=claimNextTransfer(session,current);completePhysicalTransfer(session,currentViewer);
+  assert.equal(session.finaleRun.masks.some(mask=>mask.role===current),false);
+  assert.ok(session.finaleRun.transfers[0].exposure>=session.finaleRun.crew[current].initialExposure);
+  const inside=authorize(session,session.players[current].token);applyAction(session,inside,"R12_HOTSPOT",{hotspot:"mara"});
+  assert.equal(publicState(session,inside).finale.hotspots.mara!==undefined,true);
+  assert.throws(()=>applyAction(session,viewer,"R12_HOTSPOT",{hotspot:"mara"}),/inside R-12/);
+});
+
+test("Act 7 exposes no extra R-12 purge action after capsule transfer", () => {
+  const session=createSession({code:"PURG71",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";publicState(session,facilitator);
+  const first="lead",viewer=claimNextTransfer(session,first);completePhysicalTransfer(session,viewer);
+  const state=publicState(session,viewer).finale;
+  assert.equal("purgeRemaining" in state,false);
+  assert.equal("canPurge" in state,false);
+  assert.throws(()=>applyAction(session,viewer,"R12_PURGE"),/not available/i);
 });
 
 test("pausing the finale freezes transfer exposure time", () => {
   const session=createSession({code:"PAUS71",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";publicState(session,facilitator);
-  const role=session.finaleRun.currentRole,viewer=authorize(session,session.players[role].token);
+  const role="lead",viewer=claimNextTransfer(session,role);
   session.finaleRun.transferStartedAt=Date.now()-20000;
   applyAction(session,facilitator,"PAUSE");
   const frozen=session.finaleRun.transferElapsedBeforePause;
   assert.ok(frozen>=19&&frozen<=21);
   session.finaleRun.transferStartedAt=Date.now()-59000;
   applyAction(session,facilitator,"RESUME");
-  for(const step of ["harness","wheel","ladder","inner"])applyAction(session,viewer,"TRANSFER_STEP",{step});
+  completePhysicalTransfer(session,viewer);
   assert.ok(session.finaleRun.transfers[0].seconds>=19&&session.finaleRun.transfers[0].seconds<=22);
 });
 
-test("final surface tasks propagate independently and timeout never strands the operator", () => {
+test("all-arrived console snapshots controls and timeout enters blackout", () => {
   const session=createSession({code:"SURF71",playerCount:4});connectCrew(session);session.status="stage";session.stage=7;session.stageStatus="live";session.global.systemStatus.status_beacon="broken";session.global.systemStatus.human_outbound="working";session.global.fieldServices.external_outbound_path="restored";publicState(session,facilitator);
-  while(session.finaleRun.currentIndex<session.finaleRun.order.length-1){const viewer=authorize(session,session.players[session.finaleRun.currentRole].token);for(const step of ["harness","wheel","ladder","inner"])applyAction(session,viewer,"TRANSFER_STEP",{step});}
-  assert.equal(session.finaleRun.phase,"surface");const final=authorize(session,session.players[session.finaleRun.currentRole].token);
-  assert.equal(publicState(session,final).finale.communicationLocked,true);assert.deepEqual(publicState(session,final).chatMessages,[]);
-  assert.throws(()=>applyAction(session,final,"CHAT_MESSAGE",{message:"Can anyone hear me?"}),/isolated/);
-  applyAction(session,final,"UPDATE_SURFACE",{status:"distress",message:"CREW R-12. TOXIC SURFACE. EXTERNAL EXTRACTION REQUIRED.",isolation:"engaged",authority:"authorised",releaseTest:true});
-  session.clock.endAt=1;expireIfNeeded(session,2);assert.equal(session.finaleRun.phase,"transfer");assert.equal(session.finaleRun.surfaceCommitted.timedOut,true);
-  applyAction(session,facilitator,"CLASSIFY_MESSAGE",{rating:"effective"});session.clock.endAt=2;expireIfNeeded(session,3);
-  assert.equal(session.stageStatus,"resolved");assert.equal(session.decisions[7].external.status,"OPERATIONAL / NO ACTIVE DISTRESS");assert.equal(session.decisions[7].external.message,"CLEAR");assert.equal(session.decisions[7].external.release,"ENABLED");assert.equal(session.finaleRun.transfers.length,4);
+  for(const role of rolesByCount[4])completePhysicalTransfer(session,claimNextTransfer(session,role));
+  assert.equal(session.finaleRun.phase,"power_failure");
+  const powerFailure=publicState(session,facilitator).finale.powerFailure;
+  assert.equal(powerFailure.startedAt,session.finaleRun.powerFailureStartedAt);assert.equal(powerFailure.endsAt,session.finaleRun.powerFailureEndsAt);
+  expireIfNeeded(session,session.finaleRun.powerFailureEndsAt+1);assert.equal(session.finaleRun.phase,"console");
+  const operator=authorize(session,session.players.lead.token);applyAction(session,operator,"UPDATE_SURFACE",{red:true,white:true,message:"CREW R-12. TOXIC SURFACE. EXTERNAL EXTRACTION REQUIRED."});
+  session.clock.endAt=1;expireIfNeeded(session,2);assert.equal(session.finaleRun.phase,"blackout");assert.equal(session.finaleRun.surfaceCommitted.timedOut,true);
+  applyAction(session,facilitator,"CLASSIFY_MESSAGE",{rating:"clear"});applyAction(session,facilitator,"CALCULATE_ENDING");
+  assert.equal(session.stageStatus,"resolved");assert.equal(session.decisions[7].external.status,"OPERATIONAL / NO ACTIVE DISTRESS");assert.equal(session.decisions[7].external.message,"CLEAR");assert.equal(session.finaleRun.transfers.length,4);
 });
 
 test("six-step debrief is synchronized, private-safe, and captures each first action", () => {
@@ -1459,51 +1605,131 @@ test("six-player Outside Run retains the reliable local-radio rule", () => {
   assert.doesNotMatch(card.body,/three short data bursts|channel drops/i);
 });
 
-test("Act 5 rotates one cabin move per player and exposes exact values only with Air Quality", () => {
+test("Act 5 runs five minutes and lets players claim different stations simultaneously", () => {
   const session=createSession({code:"CABIN1",playerCount:4});connectCrew(session);startShift(session);
   completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
   completeOutsidePlan(session,{firstLocation:"d",secondLocation:"a",tool1:"torque_wrench",tool2:"signal_meter",supportItem:"climbing_kit",filterUse:87});commitAndAdvance(session);
   update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");completeActiveFieldRun(session);
   applyAction(session,facilitator,"ADVANCE_STAGE");
-  assert.equal(session.stage,5);assert.equal(session.clock.duration,240);
-  session.global.systemStatus.air_quality="broken";
+  assert.equal(session.stage,5);assert.equal(session.clock.duration,300);
+  session.act5Intro.endsAt=0;session.cabinRun.engine.status="running";session.cabinRun.lastTickAt=Date.now();
   const lead=authorize(session,session.players.lead.token),signal=authorize(session,session.players.signal.token);
   let leadState=publicState(session,lead);
-  assert.equal(leadState.cabinRun.canAct,true);assert.equal(leadState.cabinRun.purgeAvailable,true);
-  assert.equal(typeof leadState.cabinRun.toxin,"string");
-  applyAction(session,lead,"CABIN_MOVE",{control:"intake",value:"sealed"});
-  assert.throws(()=>applyAction(session,lead,"CABIN_MOVE",{control:"filter",value:"b"}),/Wait for/i);
-  assert.equal(publicState(session,signal).cabinRun.canAct,true);
-  applyAction(session,signal,"CABIN_MOVE",{control:"airflow",value:"exhaust"});
+  assert.equal(leadState.cabinRun.engine.availableStationCount,10);
+  assert.equal(leadState.cabinRun.engine.purge.available,true);
+  applyAction(session,lead,"ACT5_ACTION",{action:{type:"claim",station:"INTAKE_DIVERSION"}});
+  applyAction(session,signal,"ACT5_ACTION",{action:{type:"claim",station:"DOOR_REPAIR"}});
+  leadState=publicState(session,lead);
+  assert.equal(leadState.cabinRun.engine.stations.INTAKE_DIVERSION,"1");
+  assert.equal(leadState.cabinRun.engine.stations.DOOR_REPAIR,"2");
+  assert.throws(()=>applyAction(session,signal,"ACT5_ACTION",{action:{type:"claim",station:"INTAKE_DIVERSION"}}),/occupied/i);
   applyAction(session,facilitator,"PAUSE");
-  assert.throws(()=>applyAction(session,authorize(session,session.players.systems.token),"CABIN_MOVE",{control:"filter",value:"b"}),/paused/i);
+  assert.throws(()=>applyAction(session,lead,"ACT5_ACTION",{action:{type:"intake_rotate",id:0}}),/paused/i);
   applyAction(session,facilitator,"RESUME");
-  session.global.systemStatus.air_quality="working";
-  assert.equal(typeof publicState(session,signal).cabinRun.toxin,"number");
+});
+
+test("Act 5 safety hold can be cleared and resumed without consuming the opening", () => {
+  const session=createSession({code:"SAFE05",playerCount:4});connectCrew(session);
+  applyAction(session,facilitator,"START_ACT5_TEST");
+  const openingEnd=session.act5Intro.endsAt;
+  applyAction(session,facilitator,"SAFETY");
+  assert.equal(session.safetyPaused,true);assert.equal(session.clock.running,false);assert.equal(session.cabinRun.engine.status,"paused");
+  applyAction(session,facilitator,"SAFETY");
+  assert.equal(session.safetyPaused,false);assert.equal(session.clock.running,false,"clearing a safety hold must not resume without facilitator confirmation");
+  applyAction(session,facilitator,"RESUME");
+  assert.equal(session.clock.running,true);assert.equal(session.cabinRun.engine.status,"running");
+  assert.ok(session.cabinRun.lastTickAt>=openingEnd,"resuming during the opening must not advance cabin simulation early");
+});
+
+test("direct Act 6 test opens the timed archive with restored R-12 context", () => {
+  const session=createSession({code:"ARCH06",playerCount:4});connectCrew(session);
+  applyAction(session,facilitator,"START_ACT6_TEST");
+  assert.equal(session.stage,6);
+  assert.equal(session.stageStatus,"live");
+  assert.equal(session.archiveRun.phase,"opening");
+  assert.equal(session.clock.duration,session.act6Config.shortSeconds);
+  expireIfNeeded(session,session.act6Intro.endsAt+1);
+  assert.equal(session.archiveRun.phase,"history");
+  assert.equal(session.global.fieldServices.upper_ridge_service,"restored");
+  assert.equal(publicState(session,facilitator).archive.documents.length,6);
 });
 
 test("Act 5 purge is conditional and timeout always reveals R-12 and grants a viable Act 6 window", () => {
   const session=createSession({code:"CABIN2",playerCount:4});connectCrew(session);startShift(session);
   completeHandover(session);commitAndAdvance(session);completeRepairStage(session);
   completeOutsidePlan(session);commitAndAdvance(session);update(session,{runner:"operations"});applyAction(session,facilitator,"COMMIT_STAGE");completeActiveFieldRun(session);applyAction(session,facilitator,"ADVANCE_STAGE");
-  assert.equal(session.cabinRun.purgeAvailable,false);
+  session.act5Intro.endsAt=0;session.cabinRun.engine.status="running";session.cabinRun.lastTickAt=Date.now();
+  assert.equal(publicState(session,facilitator).cabinRun.engine.purge.available,false);
   assert.throws(()=>applyAction(session,{kind:"public"},"END_CABIN_WINDOW",{note:"forge timeout"}),/not available/i);
   assert.throws(()=>applyAction(session,facilitator,"END_CABIN_WINDOW"),/Record why/i);
-  assert.throws(()=>applyAction(session,authorize(session,session.players.lead.token),"CABIN_MOVE",{control:"purge"}),/Upper Ridge/i);
+  assert.throws(()=>applyAction(session,authorize(session,session.players.lead.token),"ACT5_ACTION",{action:{type:"claim",station:"EMERGENCY_PURGE"}}),/Upper Ridge/i);
   session.clock.endAt=10;assert.equal(expireIfNeeded(session,11),true);
   assert.equal(session.stageStatus,"resolved");assert.equal(session.global.mara,"located");
   assert.ok(session.global.evidence.includes("R-12 protected volume sealed and stable"));
-  assert.ok(session.global.act6InvestigationTime>=180&&session.global.act6InvestigationTime<=360);
+  assert.ok([180,240].includes(session.global.act6InvestigationTime));
   applyAction(session,facilitator,"ADVANCE_STAGE");
   assert.equal(session.clock.duration,session.global.act6InvestigationTime);
 });
 
-test("Act 5 sustained performance, not final switches or move count, determines Act 6 time", () => {
-  const make=score=>{const session=createSession({playerCount:4});connectCrew(session);session.status="stage";session.stage=5;session.stageStatus="live";session.clock={duration:240,remaining:240,running:true,endAt:10};publicState(session,facilitator);session.cabinRun.performanceTotal=score*240;session.cabinRun.performanceSeconds=240;session.cabinRun.moves=[];expireIfNeeded(session,11);return session;};
-  const strong=make(95),weak=make(20);
-  assert.ok(strong.global.act6InvestigationTime>weak.global.act6InvestigationTime);
-  assert.equal(strong.decisions[5].moves.length,0);assert.equal(weak.decisions[5].moves.length,0);
-  assert.ok(weak.global.act6InvestigationTime>=180);assert.ok(strong.global.act6InvestigationTime<=360);
+test("Act 5 pre-flush airborne gas selects the configured SHORT or LONG Act 6 window", () => {
+  const make=gas=>{const session=createSession({playerCount:4});connectCrew(session);session.status="stage";session.stage=5;session.stageStatus="live";const now=Date.now();session.clock={duration:300,remaining:300,running:true,endAt:now-1};publicState(session,facilitator);session.act5Intro={startedAt:0,endsAt:0};session.cabinRun.engine.status="running";session.cabinRun.engine.totalGas=gas;session.cabinRun.engine.totalGasPurged=0;session.cabinRun.lastTickAt=now;expireIfNeeded(session,now);return session;};
+  const strong=make(10_000),weak=make(40_000);
+  assert.equal(strong.global.act6InvestigationTime,240);
+  assert.equal(weak.global.act6InvestigationTime,180);
+  assert.equal(strong.decisions[5].legacyAtmosphericHold,true);
+  assert.ok(weak.decisions[5].preFlushAirborneGas>=40_000);
+});
+
+test("facilitator configures Act 6 timing with manual-study and warning guardrails", () => {
+  const session=createSession({code:"A6CONF",playerCount:4});
+  applyAction(session,facilitator,"CONFIGURE_ACT6",{gasThreshold:500,shortSeconds:150,longSeconds:270,archiveSeconds:95,warningSeconds:50,criticalSeconds:20});
+  assert.deepEqual(publicState(session,facilitator).act6Config,{gasThreshold:500,shortSeconds:150,longSeconds:270,archiveSeconds:95,warningSeconds:50,criticalSeconds:20});
+  assert.throws(()=>applyAction(session,facilitator,"CONFIGURE_ACT6",{archiveSeconds:106}),/leave at least 45 seconds/i);
+  assert.throws(()=>applyAction(session,facilitator,"CONFIGURE_ACT6",{longSeconds:150}),/greater than SHORT/i);
+  assert.throws(()=>applyAction(session,facilitator,"CONFIGURE_ACT6",{warningSeconds:20,criticalSeconds:20}),/earlier than the warning point/i);
+  connectCrew(session);applyAction(session,facilitator,"START_ACT6_TEST");session.act6Intro.endsAt=0;expireIfNeeded(session);
+  assert.equal(session.clock.duration,150);
+  assert.equal(session.archiveRun.nightmareAt-session.archiveRun.openedAt,95_000);
+  applyAction(session,facilitator,"ADVANCE_ARCHIVE_PHASE",{note:"Facilitator verification advance"});
+  assert.equal(session.archiveRun.phase,"nightmare");
+  assert.throws(()=>applyAction(session,authorize(session,session.players.lead.token),"CHAT_MESSAGE",{message:"cinematic bypass"}),/locked during the synchronized Act 6 cinematic/i);
+  applyAction(session,facilitator,"ADVANCE_ARCHIVE_PHASE",{note:"Facilitator verification advance"});
+  assert.equal(session.archiveRun.phase,"technical");
+  session.clock.running=false;session.clock.remaining=50;assert.equal(publicState(session,facilitator).archive.warning,true);assert.equal(publicState(session,facilitator).archive.critical,false);
+  session.clock.remaining=20;assert.equal(publicState(session,facilitator).archive.critical,true);
+});
+
+test("facilitator can restart resolved Act 5 with the same crew links and Act 4 outcome", () => {
+  const session=createSession({code:"CABIN5",playerCount:4});connectCrew(session);
+  session.status="stage";session.stage=5;session.stageStatus="live";
+  session.global.fieldServices.upper_ridge_service="restored";
+  const now=Date.now();session.clock={duration:300,remaining:0,running:true,endAt:now-1};
+  publicState(session,facilitator);session.act5Intro={startedAt:0,endsAt:0};session.cabinRun.lastTickAt=now;
+  expireIfNeeded(session,now);
+  const links=Object.fromEntries(Object.entries(session.players).map(([role,player])=>[role,player.token]));
+  applyAction(session,facilitator,"RESTART_ACT5");
+  assert.equal(session.stage,5);assert.equal(session.stageStatus,"live");assert.equal(session.clock.duration,300);
+  assert.equal(session.cabinRun.engine.config.UPPER_RIDGE_SERVICE,"RESTORED");
+  assert.deepEqual(Object.fromEntries(Object.entries(session.players).map(([role,player])=>[role,player.token])),links);
+  assert.equal(session.outcomes[5],undefined);assert.equal(session.decisions[5],undefined);
+});
+
+test("facilitator restarts Acts 6 and 7 without returning the crew to Act 1", () => {
+  const session=createSession({code:"REACT7",playerCount:5});connectCrew(session);
+  const links=Object.fromEntries(Object.entries(session.players).map(([role,player])=>[role,player.token]));
+  session.status="stage";session.stage=6;session.stageStatus="resolved";session.global.act6InvestigationTime=240;session.outcomes[6]={headline:"Archive complete"};session.decisions[6]={investigationWindow:240};
+  applyAction(session,facilitator,"RESTART_ACT6");
+  assert.equal(session.stage,6);assert.equal(session.stageStatus,"live");assert.equal(session.clock.duration,240);assert.equal(session.outcomes[6],undefined);
+  session.stageStatus="resolved";applyAction(session,facilitator,"ADVANCE_STAGE");
+  const baseline=session.finaleRun.baselineUpperAir,stageAir=session.global.upperAir;
+  session.stageStatus="resolved";session.pendingEnding={title:"TEST"};session.outcomes[7]={headline:"Finale complete"};session.decisions[7]={film:"F01"};
+  applyAction(session,facilitator,"RESTART_ACT7");
+  assert.equal(session.status,"stage");assert.equal(session.stage,7);assert.equal(session.stageStatus,"live");assert.equal(session.finaleRun.phase,"queue");
+  assert.equal(session.finaleRun.baselineUpperAir,baseline);assert.equal(session.global.upperAir,stageAir);assert.equal(session.pendingEnding,null);assert.equal(session.ending,null);
+  session.finaleRun.crew.lead.exposure=120;session.finaleRun.crew.lead.status="compromised";
+  applyAction(session,facilitator,"RESTART_ACT7");
+  assert.equal(session.stageStatus,"live");assert.equal(session.finaleRun.phase,"queue");assert.equal(session.finaleRun.crew.lead.exposure,0);
+  assert.deepEqual(Object.fromEntries(Object.entries(session.players).map(([role,player])=>[role,player.token])),links);
 });
 
 test("six-player mode redistributes the Act 5 false external picture", () => {

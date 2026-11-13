@@ -26,6 +26,16 @@ let act2StatusOpen=snapshotMode&&query.get("status")==="open";
 let act3Resource=["navigation","manual","equipment","submission"].includes(query.get("resource"))?query.get("resource"):"navigation";
 let act4ActiveModule="";
 let act4FacTab=["overview","modules","cabin","recovery"].includes(query.get("facTab"))?query.get("facTab"):"overview";
+let act5FacTab=["overview","stations","recovery"].includes(query.get("act5FacTab"))?query.get("act5FacTab"):"overview";
+let act6ArchivePage=0;
+let act7Hotspot="room";
+let act7Camera=1;
+let act7ManualPage=0;
+let act7R12View=["room","mara","cctv","receiver","manuals","console"].includes(query.get("r12"))?query.get("r12"):"room";
+let act7Receiver="emergency";
+let act7DraggedKey="";
+let act7HoldTimer=null;
+let act7Shaker={active:false,lastX:null,lastDirection:0,busy:false};
 const act4ProcedureByRole={};
 const act3ResourceScroll={};
 const act1PageByRole = {};
@@ -40,10 +50,19 @@ const seconds = state => state.clock.running && state.clock.endAt ? Math.max(0, 
 const time = value => `${String(Math.floor(value / 60)).padStart(2,"0")}:${String(value % 60).padStart(2,"0")}`;
 const clockDisplay = state => {
   const left=seconds(state);
+  if(state.stage===7){
+    const phase=state.finale?.phase;
+    if(phase==="queue")return "READY";
+    if(phase==="walk")return "MOVING";
+    if(phase==="power_failure")return "POWER";
+    if(phase==="blackout")return "OFFLINE";
+    if(phase==="sealed")return "LOCKED";
+  }
   if(state.stage!==6||state.archive?.exactDeadline)return time(left);
   const fraction=left/Math.max(1,state.clock.duration);
   return fraction>.75?"WINDOW OPEN":fraction>.5?"HAZE RISING":fraction>.25?"AIR STRAINED":"CRITICAL";
 };
+const clockUrgent = state => state.stageStatus==="live"&&seconds(state)<=60&&(state.stage!==7||["transfer","console"].includes(state.finale?.phase));
 const roleList = state => Object.entries(state.roles);
 const joinRole = (_id, role) => role;
 const challengeNames = ["Account for shift","Repair station","Plan outside run","Execute outside run","Keep cabin breathable","Investigate Lark Shift","Get below"];
@@ -150,7 +169,7 @@ function runtimeHud(state, label, role = null) {
     <div class="hud-brand">${brandLogo("hud-logo")}<span><small>${e(label)}</small></span></div>
     <div class="hud-stage ${state.status === "ending" ? "complete" : ""}"><span class="hud-stage-counter"><small>STAGE</small><strong>${stageNumber}</strong><em>/ 07</em></span><div>${Array.from({length:7},(_,i)=>`<i class="${i+1<state.stage?"done":i+1===state.stage?"active":""}"></i>`).join("")}</div><b><small>CURRENT MISSION</small>${e(stageName)}</b></div>
     ${role ? `<div class="hud-role color-${role.color}"><span>${role.short}</span><b>${e(role.name)}</b></div>` : ""}
-    <div class="hud-clock ${seconds(state)<=60&&state.stageStatus==="live"?"urgent":""}"><span>${state.stageStatus.toUpperCase()}</span><b data-clock>${clockDisplay(state)}</b></div>
+    <div class="hud-clock ${clockUrgent(state)?"urgent":""}"><span>${state.stageStatus.toUpperCase()}</span><b data-clock>${clockDisplay(state)}</b></div>
     <button class="sound-toggle ${stationAudio.enabled?"active":""}" data-sound aria-label="Toggle station ambience"><span>◉</span> ${stationAudio.enabled?"AUDIO ON":"AUDIO"}</button>
     <div class="hud-session"><span>CREW</span><i></i>${e(state.code)}</div>
   </header>`;
@@ -343,6 +362,22 @@ function activateAct4Opening(state){
   const attempt=video.play();attempt?.then(()=>{if(button&&!video.muted){button.textContent="VIDEO AUDIO ACTIVE";button.disabled=true;}}).catch(()=>{video.muted=true;video.play().catch(()=>{});});
 }
 
+function activateAct67Cinematic() {
+  const video=document.querySelector("[data-act67-cinematic]");if(!video)return;
+  const startedAt=Number(video.dataset.startedAt||Date.now()),elapsed=Math.max(0,(Date.now()-startedAt)/1000);
+  video.muted=!stationAudio.enabled;video.volume=.72;
+  const align=()=>{if(Number.isFinite(video.duration)&&video.duration>0)video.currentTime=Math.min(elapsed,Math.max(0,video.duration-.08));};
+  if(video.readyState>=1)align();else video.addEventListener("loadedmetadata",align,{once:true});
+  const attempt=video.play();attempt?.catch(()=>{video.muted=true;video.play().catch(()=>{});});
+}
+
+function activateAct7Cctv(){
+  const video=document.querySelector("[data-r12-scare-camera]");if(!video)return;
+  const finish=async()=>{try{await client.action("R12_CAMERA",{camera:Number(video.dataset.r12ScareCamera),watch:true});stationAudio.cue("commit");}catch{stationAudio.cue("error");}};
+  video.addEventListener("ended",finish,{once:true});
+  const attempt=video.play();attempt?.catch(()=>{});
+}
+
 function waveform(count = 46) {
   return `<div class="signal-wave" aria-hidden="true">${Array.from({length:count},(_,i)=>`<i style="--h:${18+((i*17+i*i*3)%79)}%"></i>`).join("")}</div>`;
 }
@@ -388,8 +423,8 @@ function stageWorkflow(state, compact=false){
     2:repairActive?["HOW STAGE 2 WORKS / REPAIR WINDOW","Open your assigned private repair.","Complete every required choice, then submit once.","Your result locks immediately; there is no retry.","Help the crew interpret live traffic while other repairs finish."]:["HOW STAGE 2 WORKS / PRIORITISATION","Inspect the twelve panels and open the Systems Manual.","Discuss which failed capabilities matter most.","Assign one different amber FAULT system to every player.","The facilitator locks assignments; private repairs then begin together."],
     3:["HOW STAGE 3 WORKS","Players share private function, component, location, timing and equipment clues.","Choose different inbound and outbound service locations.","Choose the first stop and exactly two specialist items.","Lock only a physically viable plan; the interface does not reveal diagnostic correctness."],
     4:["HOW STAGE 4 WORKS","The runner describes the installation; the station cannot see it.","Station players match the observation to their procedure and lock one instruction.","The runner receives that instruction and commits one physical action.","Repeat at the second locked site. Neither site allows a retry."],
-    6:archiveTechnical?["HOW STAGE 6 WORKS / TECHNICAL HALF","Search and open the R-12 operating records.","Every player learns DISTRESS → EXTRACTION MESSAGE → RELEASE CONFIGURATION.","Teach it aloud because the final surface operator will be alone.","There is no submission; the archive closes automatically when time expires."]:["HOW STAGE 6 WORKS / HISTORY HALF","Search and open the short Lark Shift records.","Share useful facts aloud and reconstruct why six people entered R-12.","Separate the unknown initiating threat from the known cause of death.","At midpoint, the technical R-12 archive unlocks automatically."],
-    7:finaleMode==="surface"?["HOW STAGE 7 WORKS / FINAL OPERATOR","You are the last person above and cannot receive coaching from below.","Set station distress, write an extraction message and configure authorised release.","Commit the surface dashboard, then complete your own transfer.","The facilitator classifies the committed message; survival is compared with rescue time."]:finaleMode==="below"?["HOW STAGE 7 WORKS / INSIDE R-12","Your transfer is complete and surface communication is locked.","Do not coach players still above.","Watch shared refuge air and independently decide whether to use a finite purge.","Wait while the remaining transfers and final surface procedure complete."]:["HOW STAGE 7 WORKS / EVACUATION","A hidden random order activates one player at a time.","The active player completes four transfer steps; slower movement adds contamination.","Players already below lose surface communication and may use shared purge cycles.","The final person above completes the three-part surface procedure alone."],
+    6:archiveTechnical?["HOW STAGE 6 WORKS / R-12 INSTRUCTIONS","Browse the three physical descent sheets independently.","Learn the square hatch, chamber seal and capsule purge sequence.","Teach the procedure aloud because every player must perform it.","There is no submission; the manuals close automatically when time expires."]:["HOW STAGE 6 WORKS / THE LARK SHIFT","Browse the six fixed historical records in any order.","Share useful facts aloud and reconstruct why six people entered R-12.","Separate the unknown initiating threat from the known cause of death.","The shared nightmare interrupts automatically; page completion is not required."],
+    7:finaleMode==="surface"?["HOW STAGE 7 WORKS / FINAL CONSOLE","All active crew are inside R-12 and the backup installation has failed.","Interpret RED, WHITE, BLUE, AMBER and GREEN using the four R-12 pages.","Use WHITE for the extraction message before pressing it.","GREEN closes the sixty-second console window early."]:finaleMode==="below"?["HOW STAGE 7 WORKS / INSIDE R-12","Your transfer is complete and surface communication is locked.","Explore Mara, CCTV, receiver, manuals and the inactive console independently.","Do not coach players still above.","Wait while the remaining voluntary transfers complete."]:["HOW STAGE 7 WORKS / EVACUATION","Any eligible upstairs player may claim the available chamber.","The occupant selects the key, opens the square hatch, seals the chamber and purges the capsule.","Players already below lose surface communication and explore R-12 independently.","Masks return to the cabin pool automatically when descent begins."],
   };
   const content=workflows[state.stage];if(!content||state.stage===5)return "";
   const [title,...steps]=content;
@@ -741,13 +776,22 @@ function act2Runtime(state,mode){
 
 function immersiveOutcome(state, facilitator = false) {
   const result=state.outcomes[state.stage]; if(!result)return "";
-  const outcomeHeadline=state.stage===2?"Repair window closed":result.headline;
-  const restartAct=[2,3,4].includes(state.stage)?state.stage:null;
-  const restartPhase=restartAct===2?"PRIORITISATION":restartAct===3?"PLANNING":"FIELD DEPLOYMENT";
-  const facilitatorControl=facilitator&&state.stage===7&&state.stageStatus==="resolved"?`<div class="final-outcome-actions"><button class="button danger" data-action="CONFIRM_ENDING"><img src="./assets/images/ending/icons/confirm-record-v1.webp" alt="">CONFIRM FINAL RECORD</button><button class="outcome-restart-control" data-restart-open><img src="./assets/images/ending/icons/restart-session-v1.webp" alt="">RESTART FORMER SESSION</button></div>`:facilitator&&state.stage<7&&state.stageStatus==="resolved"?`<div class="stage-consequence-actions"><button class="stage-advance-control" data-action="ADVANCE_STAGE"><img src="./assets/images/control-start-emergency.webp" alt=""><span>CONTINUE EMERGENCY<small>ADVANCE TO STAGE ${String(state.stage+1).padStart(2,"0")}</small></span></button><button class="outcome-restart-control" ${restartAct?`data-restart-act${restartAct}`:"data-restart-open"}><img src="./assets/images/ending/icons/restart-session-v1.webp" alt=""><span>${restartAct?`RESTART ACT ${restartAct}`:"RESTART FORMER SESSION"}<small>SAME LINKS · ${restartAct?`RETURN TO ACT ${restartAct} ${restartPhase}`:"RETURN TO ACT 1"}</small></span></button></div>`:"";
+  const finalCabinOutcome=state.stage===5;
+  const finalOutcome=state.stage===7;
+  const outcomeHeadline=state.stage===2?"Repair window closed":finalCabinOutcome?"R-12 sealed / Mara alive":finalOutcome?state.pendingEnding?.title||result.headline:result.headline;
+  const restartAct=[2,3,4,5,6].includes(state.stage)?state.stage:null;
+  const restartPhase=restartAct===2?"PRIORITISATION":restartAct===3?"PLANNING":restartAct===4?"FIELD DEPLOYMENT":"CABIN MITIGATION";
+  const facilitatorControl=facilitator&&state.stage===7&&state.stageStatus==="resolved"?`<div class="final-outcome-actions"><button class="button danger" data-action="CONFIRM_ENDING" aria-label="Confirm final incident record"><img src="./assets/images/ending/icons/confirm-record-v1.webp" alt=""><span>CONFIRM ENDING<small>LOCK FINAL RECORD</small></span></button><button class="outcome-restart-control" data-restart-act7 aria-label="Restart Act 7 with the same links"><img src="./assets/images/ending/icons/restart-session-v1.webp" alt=""><span>RESTART ACT 7<small>SAME CREW LINKS</small></span></button></div>`:facilitator&&state.stage<7&&state.stageStatus==="resolved"?`<div class="stage-consequence-actions"><button class="stage-advance-control" data-action="ADVANCE_STAGE" aria-label="Continue emergency to stage ${state.stage+1}"><img src="./assets/images/control-start-emergency.webp" alt=""><span>NEXT ACT<small>CONTINUE TO ACT ${String(state.stage+1).padStart(2,"0")}</small></span></button><button class="outcome-restart-control" ${restartAct?`data-restart-act${restartAct}`:"data-restart-open"} aria-label="${restartAct?`Restart Act ${restartAct}`:"Restart former session"}"><img src="./assets/images/ending/icons/restart-session-v1.webp" alt=""><span>${restartAct?`RESTART ACT ${restartAct}`:"RESTART SESSION"}<small>SAME CREW LINKS</small></span></button></div>`:"";
   const maraFeed=state.stage===5?`<figure class="mara-observation-feed"><img src="${gameImage("mara-venn-below.webp")}" alt="R-12 observation feed showing Mara Venn alive"><figcaption><span>R-12 OBSERVATION / LIVE</span><b>MARA VENN</b><small>LIFE SIGNS CONFIRMED · ACCESS SEALED</small></figcaption></figure>`:"";
-  const impacts=(result.impacts||[]).slice(0,2);
-  return `<section class="consequence-overlay stage-${state.stage} ${result.quality}${facilitatorControl?" has-facilitator-controls":""}"><div class="consequence-scan"></div><div class="consequence-inner"><div class="consequence-surface"></div><div class="consequence-visual"><img class="consequence-scene" src="${gameImage(state.stageDefinition.consequenceImage||state.stageDefinition.image)}" alt="${e(state.stageDefinition.title)} consequence scene"></div><div class="consequence-copy">${maraFeed}<header class="outcome-record-head"><img src="./assets/images/ending/icons/confirm-record-v1.webp" alt=""><span><small>${state.stage===7?"FINAL INCIDENT RECORD":"STAGE CONSEQUENCE"}</small><b>STAGE ${String(state.stage).padStart(2,"0")} · ${result.expired?"TIME EXPIRED":"SUBMITTED"}</b></span></header><h2>${e(outcomeHeadline)}</h2><div class="outcome-cause"><span><img src="./assets/images/ending/icons/confirm-record-v1.webp" alt="">RECORDED DECISION</span><b>${e(result.decision||"Stage decision recorded.")}</b></div>${impacts.length?`<div class="outcome-impacts"><span><img src="./assets/images/ending/icons/preserve-record-v1.webp" alt="">IMMEDIATE EFFECT</span>${impacts.map(item=>`<p><i>→</i>${e(item)}</p>`).join("")}</div>`:""}<div class="outcome-next"><span><img src="./assets/images/control-start-emergency.webp" alt="">${state.stage===7?"FINAL RECORD":"NEXT"}</span><b>${e(result.next||"")}</b></div>${!facilitatorControl?`<small>${state.stage===7?"AWAITING FACILITATOR CONFIRMATION":"AWAITING FACILITATOR"}</small>`:""}</div><img class="modal-frame-art" src="./assets/images/ui/consequence-modal-frame-v1.webp" alt=""></div>${facilitatorControl}</section>`;
+  const impacts=(result.impacts||[]).slice(0,finalCabinOutcome?1:2);
+  const decision=finalCabinOutcome?"Five-minute cabin mitigation closed. Legacy Atmospheric Hold fired once.":finalOutcome?result.detail||result.decision||"Final evacuation sequence recorded.":result.decision||"Stage decision recorded.";
+  const next=finalCabinOutcome?"R-12 has been found beneath the cabin. Begin the local archive investigation.":finalOutcome?state.pendingEnding?.rescueOutcome||result.next||"":result.next||"";
+  return `<section class="consequence-overlay stage-${state.stage} ${result.quality}${facilitatorControl?" has-facilitator-controls":""}"><div class="consequence-scan"></div><div class="consequence-inner"><div class="consequence-surface"></div><div class="consequence-visual"><img class="consequence-scene" src="${gameImage(state.stageDefinition.consequenceImage||state.stageDefinition.image)}" alt="${e(state.stageDefinition.title)} consequence scene"></div>${maraFeed}<div class="consequence-copy"><header class="outcome-record-head"><img src="./assets/images/ending/icons/confirm-record-v1.webp" alt=""><span><small>${state.stage===7?"FINAL INCIDENT RECORD":"STAGE CONSEQUENCE"}</small><b>STAGE ${String(state.stage).padStart(2,"0")} · ${result.expired?"TIME EXPIRED":"SUBMITTED"}</b></span></header><h2>${e(outcomeHeadline)}</h2><div class="outcome-cause"><span><img src="./assets/images/ending/icons/confirm-record-v1.webp" alt="">RECORDED DECISION</span><b>${e(decision)}</b></div>${impacts.length?`<div class="outcome-impacts"><span><img src="./assets/images/ending/icons/preserve-record-v1.webp" alt="">IMMEDIATE EFFECT</span>${impacts.map(item=>`<p><i>→</i>${e(item)}</p>`).join("")}</div>`:""}<div class="outcome-next"><span><img src="./assets/images/control-start-emergency.webp" alt="">${state.stage===7?"FINAL RECORD":"NEXT"}</span><b>${e(next)}</b></div>${!facilitatorControl?`<small>${state.stage===7?"AWAITING FACILITATOR CONFIRMATION":"AWAITING FACILITATOR"}</small>`:""}</div><img class="modal-frame-art" src="./assets/images/ui/consequence-modal-frame-v1.webp" alt=""></div>${facilitatorControl}</section>`;
+}
+
+function act67ResolvedRuntime(state,mode){
+  const facilitator=mode==="facilitator";
+  return `<div class="game-runtime player-runtime consequence-runtime stage-${state.stage} mode-${mode}">${runtimeBackground(state)}${runtimeHud(state,facilitator?"FACILITATOR / CONSEQUENCE RECORD":mode==="player"?"CREW / CONSEQUENCE RECORD":"SHARED CONSEQUENCE RECORD")}${immersiveOutcome(state,facilitator)}</div>`;
 }
 
 function tracks(state) {
@@ -781,16 +825,34 @@ function outcome(state) {
   return `<section class="full-outcome ${result.quality}"><p class="eyebrow">CONSEQUENCE / ${result.expired?"TIME EXPIRED":"CREW DECISION"}</p><h2>${e(result.headline)}</h2><p>${e(result.detail)}</p>${(result.impacts||[]).map(item=>`<small>→ ${e(item)}</small>`).join("")}<strong>NEXT: ${e(result.next||"")}</strong><div>${tracks(state)}</div></section>`;
 }
 
-function safety(state) { return state.safetyPaused ? `<div class="safety-screen"><div><span>SESSION PAUSED</span><h2>Take the time you need.</h2><p>The game clock is stopped. The facilitator will resume when the group is ready.</p></div></div>` : ""; }
+function safety(state) {
+  if (!state.safetyPaused) return "";
+  const pausedScope = Number(state.stage) === 5
+    ? "The game clock and all Act 5 workstations are stopped."
+    : "The game clock is stopped.";
+  return `<div class="safety-screen"><div><span>SESSION PAUSED</span><h2>Take the time you need.</h2><p>${pausedScope} The facilitator can clear the safety hold when the group is ready.</p>${state.viewer?.kind==="facilitator"?`<button type="button" class="safety-clear-control" data-action="SAFETY"><i>◇</i><b>CLEAR SAFETY HOLD</b><small>The clock remains paused until you press Resume.</small></button>`:""}</div></div>`;
+}
 function observerMode(state){return state.viewer.kind==="player"&&state.absentRoles?.[state.viewer.role]?`<div class="observer-screen"><div><span>OBSERVER MODE</span><h2>Your controls are safely isolated.</h2><p>You remain connected. The facilitator can restore this role without requiring an explanation.</p></div></div>`:"";}
 
 function renderShared(state) {
   if (state.status === "lobby") return renderWaiting(state, "SHARED STATION DISPLAY");
   if (state.status === "ending") return renderEnding(state, "shared");
+  if(state.stage===7&&state.stageStatus==="live"&&state.finale?.mode==="blackout"){app.innerHTML=act7PublicBlackout();return;}
+  if([6,7].includes(state.stage)&&state.stageStatus==="resolved"){app.innerHTML=act67ResolvedRuntime(state,"shared");return;}
   if (state.stage === 1) { app.innerHTML=act1Runtime(state,"shared"); return; }
   if (state.stage === 2) { app.innerHTML=act2Runtime(state,"shared"); return; }
   if (state.stage === 3) { app.innerHTML=act3Runtime(state,"shared"); return; }
   if (state.stage === 4) { app.innerHTML=act4Runtime(state,"shared"); return; }
+  if (state.stage === 5 && state.stageStatus === "live") { if(!refreshAct5EmbeddedRuntime(state,"screen"))app.innerHTML=act5EmbeddedRuntime(state,"screen"); return; }
+  if(state.stage===6&&state.stageStatus==="live"){
+    app.innerHTML=`<div class="game-runtime player-runtime act6-player-runtime stage-6">${runtimeBackground(state)}${runtimeHud(state,"SHARED / R-12 ARCHIVE")}<section class="archive-player-control">${archivePanel(state)}</section>${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}</div>`;
+    return;
+  }
+  if(state.stage===7&&state.stageStatus==="live"){
+    const commandPhase=["queue","walk","transfer"].includes(state.finale?.phase);
+    app.innerHTML=`<div class="game-runtime player-runtime finale-runtime stage-7 act7-facilitator-runtime">${runtimeBackground(state)}${runtimeHud(state,"SHARED / R-12 COMMAND MONITOR")}<section class="finale-player-stage">${commandPhase?act7CommandMonitor(state):finalePanel(state)}</section>${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}</div>`;
+    return;
+  }
   app.innerHTML = `<div class="game-runtime shared-runtime stage-${state.stage}">${runtimeBackground(state)}${runtimeHud(state,"SHARED STATION")}
     ${challengeStack(state)}
     ${missionPlate(state)}
@@ -810,19 +872,69 @@ function renderWaiting(state, label) {
   const full=Object.keys(state.players).length===state.playerCount,ready=full;
   app.innerHTML = `<div class="game-runtime assembly-runtime"><div class="runtime-world"><img src="./assets/images/station-exterior.webp" alt="Blackout Ridge"><div class="runtime-grade"></div><div class="storm-flash"></div></div>
     <header class="assembly-header">${brandLogo("assembly-logo")}<div><small>${e(label)}</small></div><strong>SESSION ${e(state.code)}</strong></header>
-    <section class="assembly-console assembly-machine"><header>${gameIcon(crewAsset(state.playerCount),`${state.playerCount} terminal station ring`)}<div><span>SHIFT AUTHENTICATION / ${crewProtocol(state.playerCount)}</span><h1>${state.playerCount<6?"COMBINED CREW":"NIGHT CREW"} ASSEMBLING</h1><p><b>${Object.keys(state.players).length}</b> / ${state.playerCount} TERMINALS LOCKED</p></div><i></i></header>${assemblyRoster(state)}${state.viewer.kind==="facilitator"?`<div class="assembly-tools"><button data-copy-view="join">${gameIcon("control-copy-link.webp","Crew link connector")}<span><b>TRANSMIT CREW LINK</b><small>COPY SECURE INTAKE ADDRESS</small></span><i></i></button><a href="${url("shared",state.code)}" target="_blank">${gameIcon("control-shared-display.webp","Shared command display")}<span><b>ROOM DISPLAY</b><small>OPEN STATION WORLD VIEW</small></span><i></i></a></div><button class="assembly-start illustrated-control" data-action="START_GAME" ${ready?"":"disabled"}>${gameIcon("control-start-emergency.webp","Emergency start lever")}<span><b>${!full?"AWAITING FULL CREW":"INITIATE EMERGENCY"}</b><small>LOCK ROLES · START STAGE 01</small></span><i></i></button><button class="assembly-act4-test illustrated-control" data-action="START_ACT4_TEST" ${ready?"":"disabled"}>${gameIcon("control-code-auth.webp","Act 4 test access")}<span><b>${!full?"ACT 4 TEST LOCKED":"TEST ACT 4 DIRECTLY"}</b><small>QA SHORTCUT · CAM-01 → RX-01 · SIX-MINUTE REPAIRS</small></span><i></i></button>`:`<div class="assembly-wait">${gameIcon("control-crew-channel.webp","Crew radio waiting")}<span><b>CHANNEL SECURED</b><small>AWAITING COMMAND AUTHORITY</small></span><i></i></div>`}</section>
+    <section class="assembly-console assembly-machine"><header>${gameIcon(crewAsset(state.playerCount),`${state.playerCount} terminal station ring`)}<div><span>SHIFT AUTHENTICATION / ${crewProtocol(state.playerCount)}</span><h1>${state.playerCount<6?"COMBINED CREW":"NIGHT CREW"} ASSEMBLING</h1><p><b>${Object.keys(state.players).length}</b> / ${state.playerCount} TERMINALS LOCKED</p></div><i></i></header>${assemblyRoster(state)}${state.viewer.kind==="facilitator"?`<div class="assembly-tools"><button data-copy-view="join">${gameIcon("control-copy-link.webp","Crew link connector")}<span><b>TRANSMIT CREW LINK</b><small>COPY SECURE INTAKE ADDRESS</small></span><i></i></button><a href="${url("shared",state.code)}" target="_blank">${gameIcon("control-shared-display.webp","Shared command display")}<span><b>ROOM DISPLAY</b><small>OPEN STATION WORLD VIEW</small></span><i></i></a></div>${act6ConfigurationForm(state)}<button class="assembly-start illustrated-control" data-action="START_GAME" ${ready?"":"disabled"}>${gameIcon("control-start-emergency.webp","Emergency start lever")}<span><b>${!full?"AWAITING FULL CREW":"INITIATE EMERGENCY"}</b><small>LOCK ROLES · START STAGE 01</small></span><i></i></button><button class="assembly-act4-test assembly-act6-test illustrated-control" data-action="START_ACT6_TEST" ${ready?"":"disabled"}>${gameIcon("control-code-auth.webp","Act 6 test access")}<span><b>${!full?"ACT 6 TEST LOCKED":"TEST ACT 6 DIRECTLY"}</b><small>QA SHORTCUT · R-12 ARCHIVE / ACT 7 READY</small></span><i></i></button>`:`<div class="assembly-wait">${gameIcon("control-crew-channel.webp","Crew radio waiting")}<span><b>CHANNEL SECURED</b><small>AWAITING COMMAND AUTHORITY</small></span><i></i></div>`}</section>
   </div>`;
 }
 
 function choiceOptions(entries, selected) { return entries.map(([id,label])=>`<option value="${id}" ${selected===id?"selected":""}>${label}</option>`).join(""); }
 
+function archiveMedia(item){
+  if(item.id==="radio")return `<figure class="archive-evidence-visual"><img src="./assets/images/act6/production/recovered-radio-v1.webp" alt="Recovered reel recorder and emergency radio"><figcaption>RECOVERED RADIO MASTER / TRANSCRIPT VERIFIED</figcaption></figure><div class="archive-audio"><audio controls preload="metadata" src="./assets/audio/act6-lark-radio.wav"></audio><small>RECOVERED TRANSMISSION / EXACT APPROVED SCRIPT</small><p>${e(item.transcript)}</p></div>`;
+  if(item.id==="newsreel")return `<figure class="archive-evidence-visual"><img src="./assets/images/act6/production/period-newsreel-v1.webp" alt="Period television news archive"><figcaption>NORTHERN REGIONAL TELEVISION / ARCHIVE PLAYBACK</figcaption></figure><div class="archive-audio"><audio controls preload="metadata" src="${e(item.audio)}"></audio><small>SUPPLIED AUDIO MASTER / ACCESSIBLE TRANSCRIPT</small><p>${e(item.transcript)}</p></div>`;
+  return item.audio?`<div class="archive-audio"><audio controls preload="metadata" src="${e(item.audio)}"></audio><small>ACCESSIBLE TRANSCRIPT</small><p>${e(item.transcript)}</p></div>`:"";
+}
+
+const ACT6_RECORD_VISUALS={
+  newspaper:["./assets/images/act6/production/newspaper-clippings-v1.webp","REGIONAL PRESS ARCHIVE / THREE RECOVERED EDITIONS"],
+  final_shift:["./assets/images/act6/production/final-shift-log-v1.webp","LARK SHIFT DUTY LEDGER / SIX PUNCH CARDS"],
+  recovery:["./assets/images/act6/production/recovery-report-v1.webp","RECOVERY INVENTORY / R-12 INVESTIGATION FILE"],
+  manual_hatch:["./assets/images/act6/client/guide-14.webp","R-12 OPERATING SHEET 01 / ACCESS HATCH"],
+  manual_seal:["./assets/images/act6/client/guide-15.webp","R-12 OPERATING SHEET 02 / CHAMBER SEAL"],
+  manual_purge:["./assets/images/act6/client/guide-16.webp","R-12 OPERATING SHEET 03 / EMERGENCY PURGE"],
+};
+function archiveRecordVisual(item){
+  const visual=ACT6_RECORD_VISUALS[item.id];
+  return visual?`<figure class="archive-evidence-visual archive-document-visual"><img src="${visual[0]}" alt="${e(item.title)}"><figcaption>${visual[1]}</figcaption></figure>`:"";
+}
+
+function act6CinematicStyle(startedAt,duration){
+  const elapsed=Math.max(0,Math.min(duration,(Date.now()-Number(startedAt||Date.now()))/1000));
+  return `--act6-cinematic-delay:-${elapsed.toFixed(2)}s;--act6-cinematic-duration:${duration}s`;
+}
+
 function archivePanel(state) {
   const archive=state.archive;if(!archive)return "";
+  if(archive.phase==="opening")return `<section class="act6-opening"><div class="act6-cinematic-boards act6-opening-boards" style="${act6CinematicStyle(archive.opening?.startedAt,12)}"><img src="./assets/images/act6/production/opening-atmospheric-hold-v2.webp" alt="Rain-darkened Blackout Ridge control cabin"><img src="./assets/images/act7/production/evacuation-opening-v1.webp" alt="Exterior shutters sealing the station"><img src="./assets/images/act7/production/mara-conversation-v1.webp" alt="Mara Venn located inside R-12"></div><video class="act6-cinematic-audio" data-act67-cinematic data-started-at="${archive.opening?.startedAt||0}" autoplay playsinline preload="auto"><source src="./assets/media/act6/opening-legacy-hold-v1.mp4" type="video/mp4"></video><div class="act6-opening-copy"><small>LEGACY ATMOSPHERIC HOLD / SYNCHRONISED</small><h2>R-12 IS LIVE</h2><p>Modern workstations lock. Exterior shutters close. One protected-air flush clears the cabin while the isolation sweep finds the sealed volume beneath Blackout Ridge.</p><b>MARA VENN LOCATED ALIVE</b><em>The protected-air countdown starts only when the archive opens.</em></div></section>`;
+  if(archive.phase==="nightmare")return `<section class="archive-nightmare production-nightmare"><div class="nightmare-image"><div class="act6-cinematic-boards act6-nightmare-boards" style="${act6CinematicStyle(archive.nightmare?.startedAt,15)}"><img src="./assets/images/act6/production/nightmare-skylight-v1.webp" alt="Triangular lights above the sealed skylight"><img src="./assets/images/act6/production/nightmare-figures-v1.webp" alt="Figures passing beneath the station roofline"><img src="./assets/images/act6/production/nightmare-face-v1.webp" alt="The final figure turning toward the camera"></div><video class="act6-cinematic-audio" data-act67-cinematic data-started-at="${archive.nightmare?.startedAt||0}" autoplay playsinline preload="auto"><source src="./assets/media/act6/nightmare-return-v1.mp4" type="video/mp4"></video><span></span></div><div class="nightmare-copy"><small>MOVEMENT 2 / THE NIGHTMARE RETURNS</small><h2>THE LARK SHIFT IS HAPPENING AGAIN</h2><p>The sealed skylight catches triangular lights. A fixed hut-mounted camera watches plausible figures pass beneath the roofline before the final face turns upward.</p><b>EXTERIOR SHUTTERS REMAIN CLOSED</b><em>Protected-air countdown paused during the shared sequence.</em></div></section>`;
   const technical=archive.phase==="technical";
-  const cards=archive.documents.map(item=>`<article class="archive-record ${item.featured?"featured":""}" data-archive-record data-search="${e([item.title,item.type,item.source,item.summary,item.detail,item.tags.join(" ")].join(" ").toLowerCase())}"><header><span>${e(item.type)}</span><b>${e(item.date)}</b></header><h3>${e(item.title)}</h3><p>${e(item.summary)}</p>${item.detail?`<details><summary>OPEN FULL RECORD</summary><p>${e(item.detail)}</p></details>`:""}${item.audio?`<div class="archive-audio"><audio controls preload="metadata" src="${e(item.audio)}"></audio><small>ACCESSIBLE TRANSCRIPT</small><p>${e(item.transcript)}</p></div>`:""}<footer>${e(item.source)}</footer></article>`).join("");
-  const checklist=technical?`<aside class="archive-checklist"><span>FINAL SURFACE OPERATOR / MEMORISE</span>${archive.checklist.map((item,index)=>`<b><i>${index+1}</i>${e(item)}</b>`).join("")}<p>Do not execute these actions yet. Once a player descends, their microphone will be muted.</p></aside>`:`<aside class="archive-locked"><span>R-12 TECHNICAL FILES / LOCKED</span><b>UNLOCKS AT MIDPOINT</b><p>First establish why the Lark Shift entered the refuge and why rescue arrived too late.</p></aside>`;
-  return `<section class="lark-archive ${technical?"technical":"history"}">${stageWorkflow(state,true)}<header><div><span>${technical?"PHASE 2 / R-12 OPERATING ARCHIVE":"PHASE 1 / THE LARK SHIFT"}</span><b>${archive.documents.length} LOCAL RECORDS AVAILABLE</b></div><label>SEARCH ARCHIVE<input type="search" data-archive-search placeholder="Try: isolation, six, operational, purge…"></label></header><div class="archive-rule"><b>${archive.exactDeadline?`EXACT WINDOW / <span data-clock>${time(seconds(state))}</span>`:"AIR QUALITY OFFLINE / DEADLINE SHOWN AS CONDITION ONLY"}</b><span>${archive.purgeAvailable?"UPPER RIDGE RESTORED / 3 R-12 PURGE CYCLES":"UPPER RIDGE OFFLINE / NO R-12 PURGE"}</span></div>${checklist}<div class="archive-grid">${cards}</div><p class="archive-empty" hidden data-archive-empty>No local record matches that search.</p><footer>READ → SHARE THE USEFUL FACT ALOUD → FOLLOW THE NEXT LEAD · SEARCHES AND OPENED FILES ARE NOT SCORED OR STORED</footer></section>`;
+  const playerTask=technical?"Open all three sheets. Learn ACCESS HATCH → CHAMBER SEAL → EMERGENCY PURGE, then teach the sequence aloud. Every player needs the full procedure for Act 7.":"Choose any record. Read independently, then tell the crew useful facts aloud. Switch pages freely; there are no assigned records and no submission.";
+  const active=Math.min(act6ArchivePage,Math.max(0,archive.documents.length-1));
+  const cards=archive.documents.map((item,index)=>`<article class="archive-record record-${e(item.id)} ${item.featured?"featured":""}" data-archive-record ${index===active?"":"hidden"}><header><span>${e(item.type)}</span><b>${e(item.date)}</b></header><h3>${e(item.title)}</h3><p class="archive-player-mission"><b>YOUR TASK / SAME FOR EVERY PLAYER</b>${playerTask}</p><p>${e(item.summary)}</p>${archiveRecordVisual(item)}${item.detail?`<details open><summary>OPEN FULL RECORD</summary><p>${e(item.detail).replaceAll("\\n","<br>")}</p></details>`:""}${archiveMedia(item)}<footer>${e(item.source)}</footer></article>`).join("");
+  const shortLabels={incident:"SHIFT INCIDENT",newspaper:"AUTHORITY QUESTIONS",final_shift:"FINAL SHIFT",radio:"DON'T OPEN IT",newsreel:"RELAY MYSTERY",recovery:"R-12 TOO LATE",manual_hatch:"ACCESS HATCH",manual_seal:"CHAMBER SEAL",manual_purge:"EMERGENCY PURGE"};
+  const nav=archive.navigation.map((item,index)=>`<button type="button" data-archive-page="${index}" class="${index===active?"active":""}" title="${e(item.title)}"><i>${String(index+1).padStart(2,"0")}</i><span>${e(shortLabels[item.id]||item.title)}</span></button>`).join("");
+  return `<section class="lark-archive ${technical?"technical":"history"}">${stageWorkflow(state,true)}<header><div><span>${technical?"MOVEMENT 3 / R-12 INSTRUCTIONS":"MOVEMENT 1 / THE LARK SHIFT"}</span><b>${technical?"ALL PLAYERS · STUDY ACCESS → SEAL → PURGE":"ALL PLAYERS · CHOOSE ANY PAGE · SHARE FACTS ALOUD"}</b></div></header><div class="archive-rule"><b>${archive.exactDeadline?"PROTECTED-AIR WINDOW":"AIR QUALITY OFFLINE / DEADLINE SHOWN AS CONDITION ONLY"}</b><span>${technical?"NO SUBMISSION · LEARN ALL THREE SHEETS":"NO ASSIGNED ROLES · NAVIGATION IS PRIVATE"}</span></div><div class="archive-layout"><nav class="archive-index" aria-label="Archive pages">${nav}</nav><div class="archive-grid">${cards}</div></div><footer>${technical?"STUDY THE PHYSICAL SEQUENCE ALOUD · DO NOT EXECUTE THESE ACTIONS UNTIL ACT 7":"BROWSE IN ANY ORDER · SHARE USEFUL FACTS ALOUD · NO PAGE COMPLETION REQUIRED"}</footer></section>`;
 }
+
+function act6FacilitatorMonitor(state){
+  const phase=state.archive?.phase||"opening";
+  if(["opening","nightmare"].includes(phase))return archivePanel(state);
+  const phaseIndex=phase==="technical"?3:1;
+  const phaseLabels=[[1,"THE LARK SHIFT","INDEPENDENT ARCHIVE"],[2,"NIGHTMARE RETURNS","SHARED CINEMATIC"],[3,"R-12 INSTRUCTIONS","INDEPENDENT MANUALS"]];
+  const preFlush=state.cabinRun?.preFlushAirborneGas;
+  const systems=state.global?.systemStatus||{},services=state.global?.fieldServices||{};
+  const inherited=[
+    ["PRE-FLUSH GAS",preFlush===null||preFlush===undefined?"TEST BASELINE":`${Math.round(preFlush)} UNITS`],
+    ["AIR QUALITY",systems.air_quality==="working"?"EXACT MONITORING":"VISUAL WARNINGS"],
+    ["STATUS BEACON",systems.status_beacon==="working"?"CONTROL RESTORED":"FAIL-SAFE ONLY"],
+    ["OUTBOUND PATH",services.external_outbound_path==="restored"?"RESTORED":"UNAVAILABLE"],
+    ["UPPER RIDGE",services.upper_ridge_service==="restored"?"RESTORED":"UNAVAILABLE"],
+    ["LEGACY HOLD",state.cabinRun?.legacyHoldTriggered===false?"TEST MODE":"FIRED ONCE"],
+  ];
+  const connected=roleList(state).map(([id,definition])=>({id,definition,player:state.players[id],absent:state.absentRoles?.[id]}));
+  return `<section class="act6-command-monitor phase-${e(phase)} ${state.archive?.critical?"critical":state.archive?.warning?"warning":""}"><header><span>ACT 06 // PRIVATE FACILITATOR</span><b>${phase==="technical"?"R-12 PROCEDURE PREPARATION":"HISTORICAL ARCHIVE LIVE"}</b><strong>LIVE</strong></header><aside class="a6-command-phases">${phaseLabels.map(([index,title,copy])=>`<article class="${index<phaseIndex?"complete":index===phaseIndex?"active":"pending"}"><i>${String(index).padStart(2,"0")}</i><span><b>${title}</b><small>${copy}</small></span></article>`).join("")}<article class="authority"><i>◎</i><span><b>SERVER AUTHORITY</b><small>${state.clock.running?"COUNTDOWN RUNNING":state.clock.cinematicPaused||state.clock.paused?"PROGRESSION PAUSED":"CINEMATIC HOLD"}</small></span></article></aside><main><div class="a6-command-title"><span>${e(state.archive?.allowanceClass||"TEST")} WINDOW / LIVE PHASE AUTHORITY</span><h2>${phase==="technical"?"CREW STUDYING THREE R-12 SHEETS":"CREW BROWSING SIX HISTORICAL RECORDS"}</h2><p>${phase==="technical"?"Manual selection remains private on every workstation. The shared protected-air deadline continues without a reset.":"Page choice, scroll position and media playback remain private. The server will interrupt every workstation automatically."}</p></div><div class="a6-command-metrics">${inherited.map(([label,value])=>`<article><small>${e(label)}</small><b>${e(value)}</b></article>`).join("")}</div><section class="a6-command-crew"><header><span>ACTIVE ENDPOINTS</span><b>${connected.filter(item=>item.player&&!item.absent).length} / ${state.playerCount} CONNECTED</b></header>${connected.map(item=>`<p class="${item.absent||!item.player?"offline":"online"}"><i></i><b>${e(item.player?.name||item.definition.name)}</b><span>${e(item.definition.short)}</span><small>${item.absent?"ABSENT":item.player?"PRIVATE VIEW LIVE":"NOT CONNECTED"}</small></p>`).join("")}</section></main><footer><span>${state.archive?.critical?"CRITICAL ATMOSPHERIC WARNING":state.archive?.warning?"PROTECTED AIR WARNING":state.archive?.exactDeadline?"EXACT DEADLINE AVAILABLE":"CONDITION-ONLY DEADLINE"}</span><b>${phase==="technical"?"NEXT AUTHORITY EVENT / ATMOSPHERIC FAILURE INTO ACT 7":"NEXT AUTHORITY EVENT / SYNCHRONISED NIGHTMARE INTERRUPTION"}</b></footer></section>`;
+}
+
+function act6ConfigurationForm(state){const config=state.act6Config||{};return `<form class="act6-config-form" data-act6-config><label>GAS THRESHOLD<input name="gasThreshold" type="number" min="0" max="1000000" value="${e(config.gasThreshold)}"></label><label>SHORT WINDOW<input name="shortSeconds" type="number" min="120" max="3600" value="${e(config.shortSeconds)}"></label><label>LONG WINDOW<input name="longSeconds" type="number" min="121" max="3600" value="${e(config.longSeconds)}"></label><label>ARCHIVE INTERRUPT<input name="archiveSeconds" type="number" min="45" value="${e(config.archiveSeconds)}"></label><label>WARNING<input name="warningSeconds" type="number" min="11" max="300" value="${e(config.warningSeconds)}"></label><label>CRITICAL<input name="criticalSeconds" type="number" min="10" value="${e(config.criticalSeconds)}"></label><button>SAVE ACT 6 CONFIG</button><small>Movement 1 must leave at least 45 seconds for manuals on SHORT.</small></form>`;}
 
 function decisionControls(state) {
   if (state.stageStatus !== "live") return "";
@@ -840,35 +952,230 @@ function decisionControls(state) {
   return "";
 }
 
-function refugeStatus(state,interactive=false){
+function refugeStatus(state){
   const run=state.finale;if(!run)return "";
-  return `<section class="r12-status ${run.airCondition.toLowerCase()}"><header><span>R-12 PROTECTED ATMOSPHERE</span><b>${e(run.airCondition)}</b></header><div><strong>${run.belowCount} / ${run.total} CREW BELOW</strong><i>${run.purgeAvailable?`${run.purgeRemaining} SHARED PURGE CYCLES`:"PURGE OFFLINE / UPPER RIDGE NOT RESTORED"}</i></div>${interactive?`<button data-r12-purge ${run.canPurge?"":"disabled"}>${run.purgeLocked?"PURGE CYCLE RUNNING":"TRIGGER R-12 PURGE"}</button><small>No recharge countdown. A repeat before about 60 seconds is less effective.</small>`:""}</section>`;
+  return `<section class="r12-status ${run.airCondition.toLowerCase()}"><header><span>R-12 PROTECTED ATMOSPHERE</span><b>${e(run.airCondition)}</b></header><div><strong>${run.belowCount} / ${run.total} CREW BELOW</strong><i>${Number(run.reserve??100).toFixed(0)}% PROTECTED-AIR RESERVE</i></div></section>`;
+}
+const ACT7_VISUALS={
+  cabin:"./assets/images/act7/opening-critical-cabin-v1.webp",
+  hatch:"./assets/images/act7/production/key-transfer-v2.webp",
+  seal:"./assets/images/act7/production/seal-pressure-v2.webp",
+  purge:"./assets/images/act7/production/purge-accumulator-v2.webp",
+  shaft:"./assets/images/act7/production/transfer-chamber-v1.webp",
+  room:"./assets/images/act7/production/r12-refuge-act5-v1.webp",
+  mara:"./assets/images/act7/production/r12-mara-station-v1.webp",
+  cctv:"./assets/images/act7/production/r12-cctv-bank-v1.webp",
+  receiver:"./assets/images/act7/production/r12-receiver-station-v1.webp",
+  masks:"./assets/images/act7/production/mask-triage-v2.webp",
+  manuals:"./assets/images/act7/production/r12-manual-desk-v1.webp",
+  console:"./assets/images/act7/production/shutdown-console-v2.webp",
+};
+const ACT7_VISUAL_LABELS={
+  hatch:"OPEN HATCH / LOWER TRANSFER",
+  seal:"SEAL CHAMBER / PRESSURE CONTROL",
+  purge:"PURGE APPARATUS / LIVE AIR",
+  shaft:"LOWER TRANSFER CHAMBER",
+  room:"R-12 PROTECTED ROOM",
+  mara:"OBSERVATION WINDOW / MARA",
+  cctv:"CCTV / CAMERA BANK",
+  receiver:"RECEIVER / LEGACY CIRCUIT",
+  manuals:"MANUALS / R-12 PROCEDURES",
+  console:"FINAL CONSOLE / FIVE CONTROLS",
+};
+function act7Visual(id,caption=""){
+  const src=ACT7_VISUALS[id]||ACT7_VISUALS.room;
+  return `<figure class="act7-stage-visual"><img src="${src}" alt="${e(caption||ACT7_VISUAL_LABELS[id]||"Act 7 station")}" loading="eager" decoding="async"><figcaption>${e(caption||ACT7_VISUAL_LABELS[id]||"ACT 7 STATION")}</figcaption></figure>`;
+}
+function maskTriagePanel(state){
+  const run=state.finale;if(!run||state.finale.mode!=="waiting")return "";
+  const own=run.exposure?.find(item=>item.role===state.viewer?.role),free=(run.masks||[]).filter(mask=>!mask.occupied);
+  if(!own)return "";
+  const action=(name,label,maskId="")=>`<button type="button" class="act7-mask-action" data-act7-mask="${name}" ${maskId?`data-act7-mask-id="${maskId}"`:""}>${label}</button>`;
+  return `<section class="act7-mask-triage">${act7Visual("masks","CONTAMINATED CABIN / RESPIRATOR RACK")}<div class="act7-mask-overlay"><header><span>CONTAMINATED CABIN / MASK TRIAGE</span><b>${e(own.status.toUpperCase())}</b></header><div class="act7-exposure-readout"><span>YOUR CUMULATIVE EXPOSURE</span><strong>${own.exposure===null?"BAND ONLY":Number(own.exposure).toFixed(1)}</strong><small>STABLE &lt; 80 · COMPROMISED 80–179 · SEVERE 180–299 · CRITICAL 300+</small></div><p>Masks are shared and finite. Connect one while waiting, release it when you begin descent, and return it to the rack for the next player.</p><div class="act7-mask-controls">${own.maskId?action("release_mask","RELEASE MASK"):free.map(mask=>action("connect_mask",`CONNECT MASK ${mask.id}`,mask.id)).join("")}${!own.maskId&&!own.requestingMask&&free.length===0?action("request_mask","REQUEST RETURNED MASK"):""}${own.requestingMask?action("cancel_mask_request","CANCEL MASK REQUEST"):""}</div><footer>${free.length} MASK${free.length===1?"":"S"} AVAILABLE · ${run.exposure.filter(item=>item.status!=="stable").length} CREW NEED ATTENTION</footer></div></section>`;
+}
+function r12HotspotPanel(state){
+  const run=state.finale;if(run?.mode!=="below")return "";
+  const room=run.r12||{},content=room.content||{},visitedHotspots=run.hotspots||{},hotspots=[["mara","MARA","Ask six fixed questions"],["cctv","CCTV","Three arrival-indexed feeds"],["receiver","RECEIVER","Three recorded channels"],["manuals","MANUAL","Four R-12 pages"],["console","CONSOLE","Five physical controls"]];
+  const back=`<button type="button" class="act7-r12-back" data-r12-view="room">← BACK TO ROOM</button>`;
+  let detail="";
+  if(act7R12View==="room"){
+    const visited=hotspots.filter(([id])=>visitedHotspots[id]).length;
+    detail=`<div class="act7-r12-scene"><img src="${ACT7_VISUALS.room}" alt="R-12 protected refuge with Mara, CCTV, receiver, manuals and final console"><div class="act7-r12-scene-prompt"><span>PRIVATE SOURCE INDEX / YOUR TERMINAL</span><b>CHOOSE ONE OBJECT</b><small>Inspect evidence while the remaining crew descend.</small></div><div class="act7-r12-hotspot-map">${hotspots.map(([id,label,copy],index)=>`<button type="button" data-r12-view="${id}" class="${visitedHotspots[id]?"visited":""}"><i>R12-${String(index+1).padStart(2,"0")}</i><b>${label}</b><small>${copy}</small><em>${visitedHotspots[id]?"REVIEWED":"OPEN SOURCE"}</em></button>`).join("")}</div></div><div class="act7-r12-room-caption"><b>R-12 / PROTECTED REFUGE</b><span>${visited} / ${hotspots.length} SOURCES REVIEWED · PRIVATE TO THIS TERMINAL</span></div>`;
+  }else if(act7R12View==="mara"){
+    const selected=Number.isInteger(room.dialogue)?content.dialogue?.[room.dialogue]:null;
+    detail=`${back}<div class="act7-r12-detail act7-mara-detail"><img class="act7-inspection-art" src="${ACT7_VISUALS.mara}" alt="Mara behind the R-12 observation window and six physical intercom switches"><div class="act7-object-label"><span>R12-01 / OBSERVATION WINDOW</span><b>MARA VENN</b><small>${selected?"RESPONSE RECORDED":"SELECT ONE PRIVATE QUESTION"}</small></div><div class="act7-dialogue"><div>${(content.dialogue||[]).map((item,index)=>`<button type="button" data-r12-dialogue="${index}" class="${room.dialogue===index?"active":""}"><i>${String(index+1).padStart(2,"0")}</i><span>${e(item.question)}</span></button>`).join("")}</div>${selected?`<blockquote><span>MARA / INTERCOM</span><p>${e(selected.reply)}</p></blockquote>`:`<p class="act7-empty-state">Select a switch to ask one of the six fixed questions. The response stays on this terminal.</p>`}</div></div>`;
+  }else if(act7R12View==="cctv"){
+    const camera=content.cameras?.find(item=>item.id===act7Camera)||content.cameras?.[0],status=room.cameras?.[act7Camera]?.status||"locked",source=status==="available"?`./assets/media/act7/cctv/cam0${act7Camera}-scare.mp4`:`./assets/media/act7/cctv/cam0${act7Camera}-normal.mp4`;
+    const feed=status==="offline"?`<div class="act7-camera-offline"><b>SIGNAL LOST</b><span>ONE-SHOT EVENT CONSUMED</span></div>`:`<video class="act7-r12-video" controls muted playsinline ${status==="available"?`autoplay data-r12-scare-camera="${act7Camera}"`:`autoplay loop`} preload="metadata" src="${source}"></video>`;
+    detail=`${back}<div class="act7-r12-detail act7-media-detail act7-cctv-detail"><img class="act7-inspection-art" src="${ACT7_VISUALS.cctv}" alt="R-12 physical three-screen CCTV surveillance bank">${feed}<div class="act7-object-label"><span>R12-02 / SURVEILLANCE BANK</span><b>${camera?e(camera.label):"SELECT A FEED"}</b><small>${status.replaceAll("_"," ").toUpperCase()}</small></div><nav class="act7-media-tabs">${(content.cameras||[]).map(item=>{const itemStatus=room.cameras?.[item.id]?.status||"locked";return `<button type="button" data-r12-camera="${item.id}" class="${item.id===act7Camera?"active":""}" ${itemStatus==="locked"?"disabled":""}><i>CAM 0${item.id}</i><span>${e(item.label)}</span><small>${itemStatus==="locked"?`UNLOCKS AT ARRIVAL ${item.arrival}`:itemStatus.replaceAll("_"," ").toUpperCase()}</small></button>`}).join("")}</nav><div class="act7-media-footer">${status==="available"?`<button type="button" data-r12-camera-watch="${act7Camera}">END EVENT / TAKE FEED OFFLINE</button>`:`<small>${status==="offline"?"EVENT CONSUMED · SIGNAL LOST":"NORMAL LOOP · ARRIVAL EVENT PENDING"}</small>`}</div></div>`;
+  }else if(act7R12View==="receiver"){
+    detail=`${back}<div class="act7-r12-detail act7-media-detail act7-receiver-detail"><img class="act7-inspection-art" src="${ACT7_VISUALS.receiver}" alt="R-12 legacy radio receiver with three physical channel switches"><div class="act7-object-label"><span>R12-03 / LEGACY RECEIVER</span><b>PRIVATE PLAYBACK</b><small>SELECT A CHANNEL · PLAY OR REPLAY THE RECORDING</small></div><nav class="act7-media-tabs">${[["emergency","CH 01","EMERGENCY"],["military","CH 02","MILITARY"],["unknown","CH 03","UNKNOWN"]].map(([id,channel,label])=>`<button type="button" class="${id===act7Receiver?"active":""}" data-r12-receiver="${id}"><i>${channel}</i><span>${label}</span></button>`).join("")}</nav><audio controls preload="none" src="./assets/media/act7/receiver/${act7Receiver}.mp3"></audio><p class="act7-receiver-note">RECORDED IN-FICTION CHANNEL · PRIVATE TO THIS TERMINAL</p></div>`;
+  }else if(act7R12View==="manuals"){
+    detail=`${back}<div class="act7-r12-detail act7-manual-detail"><img class="act7-inspection-art" src="${ACT7_VISUALS.manuals}" alt="R-12 emergency manual mounted on its physical reading desk"><div class="act7-object-label"><span>R12-04 / EMERGENCY MANUAL</span><b>PAGE ${act7ManualPage+1} / 4</b><small>ORIGINAL OPERATING SHEET</small></div><div class="act7-manual-sheet"><img src="./assets/images/act7/approved/page-0${act7ManualPage+1}.webp" alt="R-12 emergency manual page ${act7ManualPage+1}"></div><div class="act7-manual-toolbar"><button type="button" data-r12-manual="prev" ${act7ManualPage===0?"disabled":""}>← PREVIOUS PAGE</button><span>${String(act7ManualPage+1).padStart(2,"0")} / 04</span><button type="button" data-r12-manual="next" ${act7ManualPage===3?"disabled":""}>NEXT PAGE →</button></div></div>`;
+  }else if(act7R12View==="console"){
+    detail=`${back}<div class="act7-r12-detail act7-console-detail"><img class="act7-inspection-art" src="./assets/images/act7/approved/r12-console-v1.webp" alt="R-12 photographed final five-control console"><div class="act7-object-label"><span>R12-05 / FINAL CONTROL STATION</span><b>INTERLOCKED</b><small>UNLOCKS WHEN EVERY ACTIVE CREW MEMBER REACHES R-12</small></div><p>Use the three Act 6 operating sheets. The outer shutters and the inner isolation barrier are independent systems. No control explanation is added here.</p></div>`;
+  }
+  return `<section class="act7-hotspots view-${e(act7R12View)}"><header><span>R-12 PRIVATE ROOM / INVESTIGATION</span><b>${room.arrivalCount||run.belowCount} INSIDE · YOUR VIEW ONLY</b></header><p>Your investigation is private. Select a marked object; it never changes another terminal.</p>${detail}</section>`;
 }
 function transferPanel(state){
   const transfer=state.finale?.transfer;if(!transfer)return "";
   const active=transfer.steps[transfer.step],steps=transfer.steps.map(([id,label],index)=>`<button data-transfer-step="${id}" class="${index<transfer.step?"done":index===transfer.step?"active":"locked"}" ${index===transfer.step?"":"disabled"}><i>${index+1}</i><span>${e(label)}</span></button>`).join("");
-  return `<section class="r12-transfer"><header><span>YOUR TRANSFER IS ACTIVE</span><b>MOVE CLEANLY / EVERY SECOND ADMITS CONTAMINATION</b></header><div class="hatch-route"><i></i><strong>${e(active?.[1]||"TRANSFER COMPLETE")}</strong></div><div class="transfer-steps">${steps}</div><footer>Mistakes cost time. Timeout still gets you below but applies maximum contamination.</footer></section>`;
+  const mechanics=state.finale?.mechanics;
+  if(!mechanics)return `<section class="r12-transfer"><header><span>YOUR TRANSFER IS ACTIVE</span><b>MOVE CLEANLY / EVERY SECOND ADMITS CONTAMINATION</b></header><div class="hatch-route"><i></i><strong>${e(active?.[1]||"TRANSFER COMPLETE")}</strong></div><div class="transfer-steps">${steps}</div><footer>Mistakes cost time. Timeout still gets you below but applies maximum contamination.</footer></section>`;
+  const action=(id,label,disabled=false)=>`<button type="button" class="act7-action" data-act7-action="${id}" ${disabled?"disabled":""}>${label}</button>`;
+  const phases=[['keys','01','KEY'],['hatch','02','HATCH'],['enter','03','ENTER'],['seal','04','SEAL'],['purge','05','PURGE'],['r12','06','R-12']],phaseIndex=Math.max(0,phases.findIndex(([id])=>id===mechanics.phase));
+  const procedure=`<nav class="act7-procedure-rail" aria-label="Transfer procedure">${phases.map(([id,number,label],index)=>`<span class="${index<phaseIndex?"complete":index===phaseIndex?"active":"pending"}"><i>${index<phaseIndex?"✓":number}</i><b>${label}</b></span>`).join("")}</nav>`;
+  let body="",nextLabel="",nextCopy="";
+  if(mechanics.phase==="keys"){
+    if(!mechanics.selectedKey){nextLabel="1 / SELECT A KEY";nextCopy="Compare each PROFILE silhouette with the socket shown in the artwork. Select one tethered key.";}
+    else if(!mechanics.keyInserted){nextLabel="2 / INSERT SELECTED KEY";nextCopy="Drag the selected key onto the socket line, or press ACCESSIBLE INSERT.";}
+    else{nextLabel="3 / TURN THE KEY";nextCopy="Press TURN KEY 90°. A wrong profile resets the key so you can compare again.";}
+    body=`<div class="act7-key-grid">${mechanics.keys.map(key=>`<button type="button" draggable="true" class="act7-key profile-${e(key.profile.toLowerCase())} ${mechanics.selectedKey===key.id?"selected":""}" data-act7-key="${key.id}" aria-label="Select tethered key profile ${e(key.profile)}"><i aria-hidden="true"></i><b>PROFILE ${e(key.profile)}</b><small>${mechanics.selectedKey===key.id?"SELECTED — MOVE TO SOCKET":"SELECT / INSPECT END SHAPE"}</small></button>`).join("")}</div><div class="act7-key-socket ${mechanics.keyInserted?"inserted":""}" data-act7-key-socket>${mechanics.keyInserted?"KEY SEATED — TURN 90° NOW":mechanics.selectedKey?"DROP SELECTED KEY HERE":"SOCKET — SELECT A KEY FIRST"}</div>${action("insert_key",mechanics.selectedKey?"ACCESSIBLE INSERT":"INSERT — SELECT KEY FIRST",!mechanics.selectedKey||mechanics.keyInserted)}${action("turn_key",mechanics.keyInserted?"TURN KEY 90°":"TURN — INSERT KEY FIRST",!mechanics.keyInserted)}`;
+  }
+  else if(mechanics.phase==="hatch"){const percent=Math.round(mechanics.hatchOpen*100);nextLabel="OPEN THE SQUARE HATCH";nextCopy=`Drag the hatch control fully right to 100%. Current opening: ${percent}%.`;body=`<label class="act7-hatch-drag"><span>HOLD AND DRAG HEAVY HATCH OPEN</span><input type="range" min="0" max="100" value="${percent}" data-act7-hatch-drag><b>${percent}% · ${Math.round(mechanics.hatchOpen*50)}° / 50° OPEN LIMIT</b></label>`;}
+  else if(mechanics.phase==="enter"){nextLabel="ENTER THE TRANSFER CHAMBER";nextCopy="The upper hatch is fully open. Press ENTER HATCH to climb inside and begin the seal procedure.";body=action("enter_hatch","ENTER HATCH / BEGIN SEAL");}
+  else if(mechanics.phase==="seal"){
+    const seal=mechanics.seal,validPressure=seal.pressure>=1&&seal.pressure<=1.3;
+    if(!seal.closed){nextLabel="1 / CLOSE UNDERSIDE HATCH";nextCopy="Drag UNDERSIDE HATCH fully right until it reaches the manual stop.";}
+    else if(seal.misSeated){nextLabel="RECOVERY / VENT TO 0.00 BAR";nextCopy="The gasket was inflated before clamping. Hold VENT until pressure is exactly 0.00 bar.";}
+    else if(!seal.clamped){nextLabel="2 / SEAT RIGHT-HAND CLAMP";nextCopy="Drag RIGHT-HAND CLAMP fully right. Do not fill the gasket before it is seated.";}
+    else if(seal.pressure<1){nextLabel="3 / FILL TO 1.00–1.30 BAR";nextCopy="Hold FILL and watch the pressure. Release to HOLD inside the accepted band.";}
+    else if(seal.pressure>1.3){nextLabel="3 / VENT INTO ACCEPTED BAND";nextCopy="Hold VENT until pressure returns to 1.00–1.30 bar, then release to HOLD.";}
+    else{nextLabel="4 / TEST THE SEAL";nextCopy="Pressure is accepted. Release to HOLD, then press LOWER CONTROL / TEST.";}
+    body=`<div class="act7-seal-readout ${seal.misSeated?"fault":validPressure?"ready":""}"><span>GASKET PRESSURE</span><b>${seal.pressure.toFixed(2)} BAR</b><small>${seal.misSeated?"FAULT · VENT FULLY TO ZERO":validPressure&&seal.clamped?"ACCEPTED BAND · READY TO TEST":seal.clamped?"CLAMP SEATED · FILL TO 1.00–1.30":"CLOSE HATCH · THEN CLAMP"}</small></div><label class="act7-mechanical-drag"><span>1 · UNDERSIDE HATCH</span><input type="range" min="0" max="100" value="${Math.round((seal.closure||0)*100)}" data-act7-seal-drag="closure"><b>${seal.closed?"100% · AT MANUAL STOP":"DRAG TO 100%"}</b></label><label class="act7-mechanical-drag"><span>2 · RIGHT-HAND CLAMP</span><input type="range" min="0" max="100" value="${Math.round((seal.clampProgress||0)*100)}" data-act7-seal-drag="clamp" ${!seal.closed?"disabled":""}><b>${seal.clamped?"100% · SEATED":"DRAG TO 100%"}</b></label><button type="button" class="act7-action" data-act7-hold="fill" ${!seal.closed||seal.pressure>=1.4?"disabled":""}>3 · HOLD FILL</button><button type="button" class="act7-action" data-act7-hold="vent" ${seal.pressure<=0?"disabled":""}>RECOVERY · HOLD VENT</button>${action("hold","RELEASE TO HOLD",!seal.closed)}${action("test_seal",validPressure&&seal.clamped&&!seal.misSeated?"4 · TEST SEAL":"4 · TEST — LOCKED",!seal.clamped||seal.misSeated||!validPressure)}`;
+  }
+  else if(mechanics.phase==="purge"){const charged=mechanics.purge.charge>=mechanics.purge.target;nextLabel=charged?(mechanics.receiverReady?"2 / DISCHARGE PURGE":"2 / RECEIVER RECOVERING"):"1 / CHARGE THE ACCUMULATOR";nextCopy=charged?(mechanics.receiverReady?"Target reached. Press SPACE / DISCHARGE PURGE once.":"Keep the charge at target. Discharge unlocks when the receiver interlock clears."):`Hold and shake LEFT ↔ RIGHT until the live target reaches ${mechanics.purge.target}.`;body=`<div class="act7-seal-readout ${charged?"ready":""}"><span>ACCUMULATOR / LIVE TARGET</span><b>${mechanics.purge.charge} / ${mechanics.purge.target}</b><small>${charged?(mechanics.receiverReady?"TARGET HELD · RECEIVER READY":"TARGET HELD · RECEIVER INTERLOCK"):"SHAKE LEFT ↔ RIGHT TO TARGET"}</small></div><div class="act7-shaker" data-act7-shaker><i></i><span>HOLD LEFT MOUSE · SHAKE HORIZONTALLY</span></div>${action("shake","ACCESSIBLE SHAKE +4")}${action("fire_purge",charged?(mechanics.receiverReady?"2 · SPACE / DISCHARGE PURGE":"RECEIVER RECOVERING — HOLD TARGET"):"2 · DISCHARGE — REACH TARGET FIRST",!charged||!mechanics.receiverReady)}`;}
+  else if(mechanics.phase==="r12"){nextLabel="TRANSFER COMPLETE / ENTER R-12";nextCopy="The purge cycle is complete. Press ENTER R-12 to leave the chamber and seal behind you.";body=action("enter_r12","ENTER R-12 / COMPLETE TRANSFER");}
+  const visual=mechanics.phase==="seal"?"seal":mechanics.phase==="purge"?"purge":mechanics.phase==="enter"?"shaft":(["keys","hatch"].includes(mechanics.phase)?"hatch":"room");
+  return `<section class="r12-transfer act7-physical phase-${e(mechanics.phase)}"><header><span>R-12 PHYSICAL TRANSFER / ${e(mechanics.phase.toUpperCase())}</span><b>YOU ARE THE ONLY OPERATOR · FOLLOW NEXT ACTION</b></header>${act7Visual(visual)}<div class="act7-apparatus-controls">${procedure}<div class="act7-next-action"><b>${e(nextLabel)}</b><span>${e(nextCopy)}</span></div>${body}</div><footer>Complete the highlighted action before time expires. Timeout admits maximum contamination. Players below cannot coach.</footer></section>`;
 }
 function surfacePanel(state){
   const surface=state.finale?.surface;if(!surface)return "";
-  return `<form class="surface-console" data-surface-form><header><span>FINAL SURFACE OPERATOR / ALONE</span><b>COMPLETE ALL THREE FROM MEMORY</b></header><fieldset><legend>1 / STATION DISTRESS</legend><select name="status">${choiceOptions(state.actions.surfaceStatus,surface.status)}</select><small>Local configuration is accepted; Status Beacon determines external propagation.</small></fieldset><fieldset><legend>2 / EXTRACTION MESSAGE</legend><textarea name="message" maxlength="180" placeholder="Where are the crew? What is unsafe? What response is required?">${e(surface.message)}</textarea><small>Spelling and style do not matter. Responders need occupancy, unsafe surface conditions and external extraction.</small></fieldset><fieldset><legend>3 / RELEASE CONFIGURATION</legend><select name="isolation">${choiceOptions(state.actions.releaseIsolation,surface.isolation)}</select><select name="authority">${choiceOptions(state.actions.releaseAuthority,surface.authority)}</select><label><input type="checkbox" name="releaseTest" ${surface.releaseTest?"checked":""}> PULL EXTERNAL RELEASE TEST</label></fieldset><button>COMMIT SURFACE DASHBOARD / BEGIN FINAL TRANSFER</button></form>`;
+  const interactive=state.viewer?.kind==="player";
+  const control=(id,index,label,action,status,active=false)=>`<button type="button" class="final-control final-control-${id} ${active?"active":""}" data-final-control="${id}" ${active||!interactive?"disabled":""}><i>${index}</i><span><b>${label}</b><small>${action}</small></span><em>${status}</em></button>`;
+  return `<form class="surface-console physical-console ${interactive?"":"read-only"}" data-surface-form><header><span><i></i>R-12 / EMERGENCY CONTROL RESERVE</span><b>${Number(state.finale?.reserve??100).toFixed(0)}% PROTECTED AIR · ${interactive?"FINAL CONTROL ARRAY ARMED":"SHARED CONTROL STATUS"}</b></header><div class="final-console-art"><img src="./assets/images/act7/production/r12-final-console-v2.webp" alt="R-12 final emergency console with five illuminated physical controls"><div class="final-console-atmosphere" aria-hidden="true"></div><div class="final-console-buttons">${control("red","01","RED","DECLARE DISTRESS",surface.red?"SIGNAL SENT":interactive?"PRESS CONTROL":"AWAITING CREW",surface.red)}${control("blue","02","BLUE","HOLD ISOLATION",surface.blue?"ISOLATION HELD":interactive?"PRESS CONTROL":"AWAITING CREW",surface.blue)}${control("amber","03","AMBER","EXTERIOR FLOODLIGHTS",surface.amber?"LIGHTS ACTIVE":interactive?"PRESS CONTROL":"AWAITING CREW",surface.amber)}${control("white","04","WHITE","SEND EXTRACTION REQUEST",surface.white?"TRANSMISSION ACTIVE":interactive?"TYPE MESSAGE · THEN PRESS":"AWAITING CREW",surface.white)}${control("green","05","GREEN","OPEN EXTERIOR SHUTTERS",surface.green?"SHUTTERS OPEN":interactive?"FINALISE · CLOSE WINDOW":"AWAITING CREW",surface.green)}</div><fieldset class="final-message-field"><legend><i></i>EXTRACTION TELETYPE / WHITE CHANNEL</legend><textarea name="message" maxlength="180" placeholder="${interactive?"IDENTIFY R-12 OCCUPANTS, UNSAFE SURFACE AIR, AND THE EXTRACTION REQUIRED…":"CREW MESSAGE"}" ${surface.white||!interactive?"disabled":""}>${e(surface.message)}</textarea><small>${interactive?"COMPOSE FIRST · PRESS WHITE TO ATTEMPT TRANSMISSION":"READ-ONLY · CREW TERMINALS HOLD CONTROL"}</small></fieldset><div class="final-console-readout"><span class="${surface.red?"complete":""}">01 DISTRESS</span><span class="${surface.blue?"complete":""}">02 ISOLATION</span><span class="${surface.amber?"complete":""}">03 LIGHTS</span><span class="${surface.white?"complete":""}">04 MESSAGE</span><span class="${surface.green?"complete":""}">05 SHUTTERS</span></div><div class="final-console-directive"><span>ONE MINUTE OF RESERVE POWER</span><b>READ THE HARDWARE · CHOOSE WHAT THE WORLD RECEIVES</b></div></div></form>`;
 }
 function messageRubric(state){
   const run=state.finale;if(!run?.messageNeedsRating)return "";
-  return `<section class="message-rubric"><header><span>FACILITATOR / POST-SUBMISSION</span><b>CLASSIFY CONTENT, NOT WRITING QUALITY</b></header><blockquote>${e(run.surfaceCommitted?.message||"[BLANK]")}</blockquote><div><button data-message-rating="effective"><b>EFFECTIVE</b><small>R-12 occupancy + unsafe surface + external extraction</small></button><button data-message-rating="partial"><b>PARTIAL</b><small>Useful emergency information; one essential element missing</small></button><button data-message-rating="ineffective"><b>INEFFECTIVE</b><small>Blank, irrelevant or no usable extraction request</small></button></div></section>`;
+  return `<section class="message-rubric"><header><span>FACILITATOR / PRIVATE CONTENT VERDICT</span><b>JUDGE CONTENT ONLY · DELIVERY CALCULATED SEPARATELY</b></header><blockquote>${e(run.surfaceCommitted?.message||"[BLANK]")}</blockquote><form data-message-verdict><label>MESSAGE VERDICT<select name="rating" required><option value="">SELECT ONE VERDICT</option><option value="clear">CLEAR — occupants, unsafe atmosphere and protected extraction</option><option value="partial">PARTIAL — useful, but one essential element is missing</option><option value="poor">POOR — no actionable rescue requirement or occupants identified</option><option value="none">NONE — no meaningful content</option></select></label><button type="submit">SAVE VERDICT</button></form></section>`;
+}
+function act7WalkPanel(state){const walk=state.finale?.walk;if(!walk)return "";const ordinal=Math.max(1,Math.min(7,walk.ordinal));return `<section class="act7-walk act7-walk-${ordinal}"><video class="act7-walk-film" data-act67-cinematic data-started-at="${walk.startedAt||0}" autoplay playsinline preload="auto" poster="./assets/images/act7/opening-critical-cabin-v1.webp"><source src="./assets/media/act7/walk/walk-${String(ordinal).padStart(2,"0")}-v1.mp4" type="video/mp4"></video><div class="act7-walk-copy"><span>PRIVATE WALK / ARRIVAL ${ordinal}</span><h2>THE SAME CABIN LOOKS WRONG</h2><p>Four fixed views of the same cabin. The square upper hatch remains closed until the physical transfer unlocks.</p><b>TRANSFER CONTROLS ARMING</b></div></section>`;}
+function act7PowerFailurePanel(state){const cinematic=state.finale?.powerFailure||{};return `<section class="act7-power-failure"><video class="act7-power-film" data-act67-cinematic data-started-at="${cinematic.startedAt||0}" autoplay playsinline preload="auto" poster="./assets/images/act7/production/power-failure-v1.webp"><source src="./assets/media/act7/power-failure-v1.mp4" type="video/mp4"></video><div><span>MAIN POWER FAILURE</span><h2>EMERGENCY CONTROL RESERVE ACTIVE</h2><b>SYSTEM SHUTDOWN IN 60 SECONDS</b><p>The final console unlocks when the relay sequence completes.</p></div></section>`;}
+function act7BlackoutPanel(state){const facilitator=state.viewer.kind==="facilitator";return `<section class="act7-blackout"><div><span>POWER EXHAUSTED</span><h2>COMPLETE BLACKOUT</h2><p>External impacts continue beyond the sealed refuge.</p>${facilitator?`${messageRubric(state)}${state.finale.messageRating?`<button type="button" class="act7-calculate" data-calculate-ending ${state.finale.canCalculate?"":"disabled"}>CALCULATE ENDING / LAUNCH FILM</button>`:""}`:""}</div></section>`;}
+function act7PublicBlackout(){return `<div class="game-runtime act7-total-blackout" role="img" aria-label="Complete blackout"></div>`;}
+function act7CommandMonitor(state){
+  const run=state.finale,command=run?.command;if(!run||!command)return finalePanel(state);
+  const exposure=new Map((run.exposure||[]).map(item=>[item.role,item])),crew=command.crew||[],connected=(run.masks||[]).filter(mask=>mask.occupied).length;
+  const receiverLeft=Math.max(0,Math.ceil(((command.receiverReadyAt||0)-Date.now())/1000)),phase=String(command.mechanicPhase||run.phase||"queue").replaceAll("_"," ").toUpperCase();
+  const status=run.phase==="queue"?"AVAILABLE · AWAITING VOLUNTEER":run.phase==="walk"?`${e(run.currentName)} · APPROACHING HATCH`:run.phase==="transfer"?`OCCUPIED · ${e(run.currentName)} · ${e(phase)}`:`${e(phase)} · ${run.belowCount}/${run.total} BELOW`;
+  const severity=item=>String(item?.status||"stable").toUpperCase(),bar=item=>Math.min(100,Math.max(2,Number(item?.exposure||0)/3));
+  const rows=crew.map((member,index)=>{const item=exposure.get(member.role),mask=run.masks?.find(entry=>entry.role===member.role),location=member.location.toLowerCase().replaceAll("-","");return `<article class="a7-crew-line severity-${severity(item).toLowerCase()}" style="--crew-index:${index}"><span class="a7-crew-lamp" aria-hidden="true"></span><div class="a7-crew-name"><b>${e(member.name)}</b><small>${e(state.roles?.[member.role]?.short||member.role)}</small></div><strong class="location-${location}">${e(member.location)}</strong><div class="a7-crew-exposure"><span><b>${Number(item?.exposure||0).toFixed(1)}</b><i>${severity(item)}</i></span><em><i style="width:${bar(item)}%"></i></em></div><small>${member.location==="R-12"?"PROTECTED REFUGE":mask?`MASK ${mask.id} · PROTECTED`:"UNPROTECTED"}</small><strong>${e(member.transfer)}</strong></article>`;}).join("");
+  const waiting=crew.filter(member=>member.location==="CABIN").map(member=>member.name).join(" · ")||"NONE",inside=crew.filter(member=>member.location==="R-12").map(member=>member.name).join(" · ")||"NONE";
+  const transferRows=(command.transfers||[]).map(item=>`<span><i>${item.ordinal}</i>${e(item.name)} <b>${item.seconds}s / ${Number(item.contamination||0).toFixed(1)}%</b></span>`).join("")||"<span>NO COMPLETED TRANSFERS</span>";
+  const availableMasks=Math.max(0,(run.masks?.length||0)-connected),maskRequest=(run.exposure||[]).some(item=>item.requestingMask);
+  return `<section class="act7-command-monitor"><img class="a7-command-art" src="./assets/images/act7/production/command-room-v3.webp" alt="R-12 evacuation command room"><div class="a7-command-glass"><header><span>R-12 EVACUATION / SESSION ${e(state.code)}</span><h1>CREW TRANSFER</h1><b>${e(status)}</b></header><div class="a7-resource-readings"><span><small>CHAMBER LOAD</small><strong>${Number(command.contamination||0).toFixed(1)}%</strong></span><span><small>R-12 AIR</small><strong>${e(run.airCondition)}</strong><em>${Number(command.reserve||0).toFixed(0)}% RESERVE</em></span><span><small>MASKS</small><strong>${availableMasks} READY</strong></span><span><small>RECEIVER</small><strong>${receiverLeft?`${receiverLeft}s LOCK`:"READY"}</strong></span><span><small>ARRIVALS</small><strong>${run.belowCount} / ${run.total}</strong></span></div><div class="a7-crew-lines">${rows}</div><footer><span>WAITING · ${e(waiting)}</span><span>R-12 · ${e(inside)}</span></footer></div><aside class="a7-hardware-readout"><span class="a7-chamber-copy"><small>AIRLOCK</small><b>${run.phase==="queue"?"OPEN":run.phase==="transfer"?"OCCUPIED":"ACTIVE"}</b><em>${receiverLeft?"RECEIVER INTERLOCK":"RECEIVER ACCEPTING"}</em></span><span class="a7-mask-copy"><small>SUPPLIED AIR</small><b>${connected} WORN / ${availableMasks} READY</b><em>${maskRequest?"RETURN REQUEST ACTIVE":"NO MASK REQUEST"}</em></span></aside><footer class="a7-console-copy"><span><small>TRANSFER LOG</small>${transferRows}</span><span><small>CAPSULE PURGE</small><b>${run.belowCount} / ${run.total} DISCHARGED</b></span><span><small>CHAMBER</small><b>${Number(command.contamination||0).toFixed(1)}% CONTAMINATION</b></span></footer></section>`;
 }
 function finalePanel(state){
   const run=state.finale;if(!run)return "";
   const workflow=stageWorkflow(state,true);
-  if(run.mode==="transfer")return `${workflow}${transferPanel(state)}${refugeStatus(state)}`;
-  if(run.mode==="surface")return `${workflow}${surfacePanel(state)}${refugeStatus(state)}`;
-  if(run.mode==="below")return `${workflow}<section class="r12-isolated"><span>YOU ARE INSIDE R-12</span><h2>MICROPHONE / CREW CHAT MUTED</h2><p>You cannot coach anyone above. Watch the shared air condition and decide independently whether to spend a purge cycle.</p>${refugeStatus(state,true)}</section>`;
-  if(run.mode==="waiting")return `${workflow}<section class="r12-waiting"><span>WAIT TO DESCEND</span><h2>${e(run.currentName||"TRANSFER PREPARING")} IS MOVING</h2><p>Your position in the hidden order is not shown. Stay ready; your terminal activates automatically.</p>${refugeStatus(state)}</section>`;
-  return `${workflow}<section class="finale-overview"><header><span>${run.phase==="surface"?"FINAL OPERATOR ACTIVE":run.phase==="adjudication"?"R-12 SEALED / MESSAGE REVIEW":"SEQUENTIAL EVACUATION"}</span><b>${run.belowCount} / ${run.total} BELOW</b></header><h2>${run.phase==="surface"?`${e(run.currentName)} remains alone above`:run.phase==="adjudication"?"Everyone reached R-12":`${e(run.currentName||"Crew member")} is descending`}</h2><p>The random order remains hidden. Every transfer completes; slower movement worsens the shared refuge atmosphere.</p>${refugeStatus(state)}${messageRubric(state)}</section>`;
+  if(run.mode==="walk")return `${act7WalkPanel(state)}${refugeStatus(state)}`;
+  if(run.mode==="transfer")return `${transferPanel(state)}${refugeStatus(state)}`;
+  if(run.mode==="power_failure"||run.phase==="power_failure")return act7PowerFailurePanel(state);
+  if(run.mode==="console"||run.phase==="console")return surfacePanel(state);
+  if(run.mode==="blackout"||run.phase==="blackout")return act7BlackoutPanel(state);
+  if(run.mode==="below")return `<section class="r12-isolated r12-isolated-compact"><div><span>R-12 PRIVATE TERMINAL / CHANNEL ISOLATED</span><h2>ROOM INVESTIGATION</h2><p><b>YOUR TASK</b> Inspect five local sources while the remaining voluntary transfers complete. Crew chat remains muted.</p></div><aside><span>${run.belowCount} / ${run.total} INSIDE</span><b>${e(run.airCondition)} AIR</b><small>${Number(run.reserve??0).toFixed(0)}% RESERVE</small></aside></section>${r12HotspotPanel(state)}`;
+  if(run.mode==="waiting"||(["facilitator","shared"].includes(run.mode)&&["queue","walk","transfer"].includes(run.phase)))return `${workflow}<section class="r12-waiting"><span>VOLUNTARY TRANSFER / ONE OCCUPANT</span><h2>${run.currentName?`${e(run.currentName)} IS MOVING`:"THE CHAMBER IS AVAILABLE"}</h2><p>${run.currentName?"Remain above, manage the shared masks and keep exposure down until the occupant reaches R-12.":"The crew chooses its own order. The first eligible player to begin descent claims the chamber atomically."}</p>${run.canBegin?`<button type="button" class="act7-begin-descent" data-begin-descent>BEGIN DESCENT</button>`:""}</section>${maskTriagePanel(state)}${refugeStatus(state)}`;
+  return `${workflow}<section class="finale-overview phase-${e(run.phase)}"><header><span>ACT 7 / REFUGE TRANSFER</span><b>${run.belowCount} / ${run.total} BELOW</b></header><h2>${e(run.currentName||"Crew transfer active")}</h2><p>Every transfer is voluntary and exclusive. Slower movement increases exposure and capsule contamination.</p>${refugeStatus(state)}${messageRubric(state)}</section>`;
+}
+
+function act5Embed(state,mode="screen"){
+  const query=new URLSearchParams(location.search),token=query.get("token")||"";
+  const seat=state.cabinRun?.playerId||"1";
+  const path=mode==="player"?`/act5/player/${seat}`:"/act5/screen";
+  const src=`${path}?session=${encodeURIComponent(state.code)}&token=${encodeURIComponent(token)}&seat=${encodeURIComponent(seat)}`;
+  return `<iframe class="act5-production-frame" src="${e(src)}" title="Blackout Ridge Act 5 ${mode==="player"?"workstation":"cabin display"}" allow="autoplay"></iframe>`;
+}
+
+function act5Opening(state){
+  if(!state.act5Intro||state.act5Intro.endsAt<=Date.now())return "";
+  const shots=[
+    ["act5/opening-01-runner-returns-v1.webp","01","RUNNER RETURNS","The field runner reaches the cabin and seals the main door."],
+    ["act5/opening-02-plume-ridge-v1.webp","02","THE PLUME REACHES THE RIDGE","Contaminated air rolls over Blackout Ridge."],
+    ["act5/opening-03-first-ingress-v1.webp","03","FIRST INGRESS","Isolation seams and ventilation begin admitting the plume."],
+    ["act5/opening-04-room-hostile-v1.webp","04","THE ROOM TURNS HOSTILE","Visibility falls as the cabin atmosphere degrades."],
+    ["act5/opening-05-crew-stations-v1.webp","05","CREW TO STATIONS","The crew split across ten independent work locations."],
+    ["act5/opening-06-mitigation-v1.webp","06","MITIGATION BEGINS","Five minutes. Slow the contamination and buy investigation time."],
+  ];
+  return `<section class="act5-opening" aria-label="Act 5 opening sequence"><div class="act5-opening-brand"><span>BLACKOUT RIDGE / ACT 05 OPENING</span><b>PLUME REACHES THE CABIN</b></div>${shots.map(([image,number,title,copy],index)=>`<figure style="--shot:${index}"><img src="./assets/images/${image}" alt="${number} ${title}" loading="eager" decoding="async"><figcaption><b><i>${number}</i>${title}</b><span>${copy}</span></figcaption></figure>`).join("")}<div class="act5-opening-clock"><span>WORK LOCATIONS UNLOCK IN</span><b>05:00</b></div></section>`;
+}
+
+const act5FacilitatorStations=[
+  ["DOOR_BRACE","door-brace-v1.webp","TEMPORARY LEAK CONTROL"],
+  ["DOOR_REPAIR","door-repair-v1.webp","PERMANENT DOOR SEAL"],
+  ["INTAKE_DIVERSION","intake-diversion-v1.webp","REMOVE INTAKE SOURCE"],
+  ["SERVICE_SEAL","service-seal-v1.webp","REDUCE SERVICE LEAK"],
+  ["FILTER_BANK","filter-bank-v1.webp","RESTORE FILTER FLOW"],
+  ["LIVE_WIRE","live-wire-v1.webp","RESTORE POWER CHAIN"],
+  ["CHEMICAL_SCRUBBER","chemical-scrubber-v1.webp","TREAT INCOMING GAS"],
+  ["EMERGENCY_PURGE","emergency-purge-v1.webp","REMOVE CABIN GAS"],
+  ["AIR_SUPPLY","air-supply-v1.webp","REDUCE TOTAL INGRESS"],
+  ["DEMISTER_DRAINAGE","demister-v1.webp","RESTORE TREATMENT FLOW"],
+];
+
+function act5FacilitatorDock(state){
+  const engine=state.cabinRun?.engine||{},air=engine.air||{},statuses=engine.stationStatus||{};
+  const rows=act5FacilitatorStations.map(([id,icon,effect])=>({id,icon,effect,...(statuses[id]||{})}));
+  const stable=rows.filter(item=>item.stable).length,occupied=rows.filter(item=>item.occupiedBy).length;
+  const attention=rows.filter(item=>item.attentionRequired).length,gas=Number(air.contamination||0);
+  const ingress=Number(air.ingressRate||0),trend=String(air.rateTrend||"AWAITING").replaceAll("_"," ").toUpperCase();
+  const upperRidge=engine.config?.UPPER_RIDGE_SERVICE==="RESTORED";
+  const operator=value=>value?`PLAYER ${e(value)}`:"AVAILABLE";
+  const panel=(id,body)=>`<section class="a5-fac-panel" data-act5-fac-panel="${id}" ${act5FacTab===id?"":"hidden"}>${body}</section>`;
+  return `<header class="a5-fac-head"><span>ACT 05 // PRIVATE FACILITATOR</span><nav aria-label="Act 5 facilitator views">${[["overview","⌖","OVERVIEW"],["stations","◈","STATIONS"],["recovery","✚","RECOVERY"]].map(([id,icon,label])=>`<button type="button" data-act5-fac-tab="${id}" class="${act5FacTab===id?"active":""}"><i>${icon}</i>${label}</button>`).join("")}</nav><b data-clock>${time(seconds(state))}</b></header>
+  <main class="a5-fac-space">
+    ${panel("overview",`<div class="a5-fac-lead"><small>LIVE CABIN COMMAND</small><b>${state.clock.running?"MITIGATION WINDOW ACTIVE":"MITIGATION WINDOW PAUSED"}</b><span>${attention} STATIONS REQUIRE ATTENTION</span></div><div class="a5-fac-metrics"><p><small>AIR BURDEN</small><b>${gas.toFixed(1)} CU</b></p><p><small>NET INGRESS</small><b>${ingress.toFixed(1)} CU/S</b></p><p><small>RATE TREND</small><b>${e(trend)}</b></p><p><small>CREW COVERAGE</small><b>${occupied} / 10</b></p><p><small>STABLE</small><b>${stable} / 10</b></p><p><small>UPPER RIDGE</small><b class="${upperRidge?"good":"warn"}">${upperRidge?"RESTORED":"UNAVAILABLE"}</b></p></div>`)}
+    ${panel("stations",`<div class="a5-station-strip">${rows.map(item=>`<article class="${item.available===false?"offline":item.stable?"stable":"attention"}"><img src="./assets/images/act5/station-icons/${item.icon}" alt=""><span><b>${e(item.label||item.id)}</b><small>${e(item.effect)}</small></span><em>${e(item.state||"AWAITING")}</em><i>${operator(item.occupiedBy)}</i></article>`).join("")}</div>`)}
+    ${panel("recovery",`<div class="a5-recovery-copy"><i>✚</i><span><small>FACILITATOR-ONLY RECOVERY</small><b>Use these controls only for a pause, safety concern, or full Act 5 restart.</b><em>Station choices and puzzle outcomes remain with the crew.</em></span></div><button class="a5-reset-control" data-action="RESTART_ACT5"><i>↻</i><span>RESTART ACT 5<small>RETURN EVERY TERMINAL TO THE ACT 5 OPENING</small></span></button>`)}
+  </main>
+  <footer class="a5-fac-controls"><span>${state.safetyPaused?"SAFETY HOLD ACTIVE":"CABIN PHYSICS LIVE"}</span>${state.clock.running?button("Ⅱ  PAUSE","PAUSE","secondary"):button("▶  RESUME","RESUME","secondary",state.stageStatus!=="live")}${button(state.safetyPaused?"◇  CLEAR SAFETY":"⚠  SAFETY PAUSE","SAFETY","secondary")}</footer>`;
+}
+
+function act5EmbeddedRuntime(state,mode){
+  const facilitator=mode==="facilitator";
+  const role=mode==="player"?state.roles?.[state.viewer?.role]:null;
+  const headerLabel=facilitator?"FACILITATOR / CABIN CONTROL":mode==="player"?"CREW / CABIN WORKSTATION":"SHARED CABIN STATUS";
+  return `<div class="act5-integrated-runtime ${facilitator?"facilitator":""}" data-act5-runtime="${e(mode)}" data-act5-phase="${state.act5Intro?.endsAt>Date.now()?"opening":"live"}">
+    ${runtimeHud(state,headerLabel,role)}
+    ${state.act5Intro?.endsAt>Date.now()?act5Opening(state):act5Embed(state,mode==="player"?"player":"screen")}
+    ${facilitator?`<aside class="act5-facilitator-dock">${act5FacilitatorDock(state)}</aside>`:""}
+    ${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}
+  </div>`;
+}
+
+function refreshAct5EmbeddedRuntime(state,mode){
+  const runtime=app.querySelector("[data-act5-runtime]");
+  if(!runtime||runtime.dataset.act5Runtime!==mode)return false;
+  const nextPhase=state.act5Intro?.endsAt>Date.now()?"opening":"live";
+  if(runtime.dataset.act5Phase!==nextPhase)return false;
+  runtime.querySelectorAll("[data-clock]").forEach(node=>node.textContent=time(seconds(state)));
+  if(mode==="facilitator"){
+    const dock=runtime.querySelector(".act5-facilitator-dock");
+    if(dock)dock.innerHTML=act5FacilitatorDock(state);
+  }
+  const existingAlert=runtime.querySelector(".runtime-alert");
+  const nextAlert=state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:"";
+  if(existingAlert&&!state.hint)existingAlert.remove();
+  else if(existingAlert&&state.hint)existingAlert.outerHTML=nextAlert;
+  else if(state.hint)runtime.insertAdjacentHTML("beforeend",nextAlert);
+  const existingSafety=runtime.querySelector(".safety-screen");
+  if(existingSafety&&!state.safetyPaused)existingSafety.remove();
+  else if(!existingSafety&&state.safetyPaused)runtime.insertAdjacentHTML("beforeend",safety(state));
+  return true;
 }
 
 function cabinAirPanel(state,interactive=false){
   const run=state.cabinRun;if(!run)return "";
+  if(run.engine)return act5Embed(state,state.viewer?.kind==="player"?"player":"screen");
   const show=value=>typeof value==="number"?value.toFixed(1):value;
   const meter=(label,value,unit="")=>`<article><span>${e(label)}</span><b>${e(show(value))}${typeof value==="number"?unit:""}</b></article>`;
   const controls=Object.entries(state.actions.cabinControls).map(([control,entries])=>`<fieldset><legend>${e(control.toUpperCase())}</legend>${entries.map(([value,label])=>`<button type="button" data-cabin-control="${control}" data-cabin-value="${value}" class="${run.controls[control]===value?"selected":""}" ${!interactive||!run.canAct||run.controls[control]===value?"disabled":""}>${e(label)}</button>`).join("")}</fieldset>`).join("");
@@ -909,6 +1216,8 @@ function fieldPlayerControl(state) {
 function renderPlayer(state) {
   if (state.status === "lobby") return renderWaiting(state,"PRIVATE ROLE TERMINAL");
   if (state.status === "ending") return renderEnding(state,"player");
+  if(state.stage===7&&state.stageStatus==="live"&&state.finale?.mode==="blackout"){app.innerHTML=act7PublicBlackout();return;}
+  if([6,7].includes(state.stage)&&state.stageStatus==="resolved"){app.innerHTML=act67ResolvedRuntime(state,"player");return;}
   const role=state.roles[state.viewer.role], card=state.privateCard, isLead=state.viewer.role==="lead";
   if(state.stage===1){app.innerHTML=act1Runtime(state,"player");return;}
   if(state.stage===2){app.innerHTML=act2Runtime(state,"player");return;}
@@ -919,8 +1228,13 @@ function renderPlayer(state) {
     return;
   }
   if(state.stage===4){app.innerHTML=act4Runtime(state,"player");return;}
+  if(state.stage===5&&state.stageStatus==="live"){if(!refreshAct5EmbeddedRuntime(state,"player"))app.innerHTML=act5EmbeddedRuntime(state,"player");return;}
+  if(state.stage===6&&state.stageStatus==="live"){
+    app.innerHTML=`<div class="game-runtime player-runtime act6-player-runtime stage-6 role-${role.color}">${runtimeBackground(state)}${runtimeHud(state,"R-12 ARCHIVE / PRIVATE TERMINAL",role)}<section class="archive-player-control">${archivePanel(state)}</section>${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}${observerMode(state)}</div>`;
+    return;
+  }
   if(state.stage===7&&state.stageStatus==="live"){
-    app.innerHTML=`<div class="game-runtime player-runtime finale-runtime role-${role.color}">${runtimeBackground(state)}${runtimeHud(state,state.finale?.mode==="surface"?"SURFACE ISOLATED TERMINAL":state.finale?.communicationLocked?"R-12 ISOLATED TERMINAL":"EVACUATION TERMINAL",role)}<section class="finale-player-stage">${finalePanel(state)}</section>${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}${observerMode(state)}</div>`;
+    app.innerHTML=`<div class="game-runtime player-runtime finale-runtime stage-7 role-${role.color}">${runtimeBackground(state)}${runtimeHud(state,state.finale?.mode==="surface"?"SURFACE ISOLATED TERMINAL":state.finale?.communicationLocked?"R-12 ISOLATED TERMINAL":"EVACUATION TERMINAL",role)}<section class="finale-player-stage">${finalePanel(state)}</section>${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}${observerMode(state)}</div>`;
     return;
   }
   app.innerHTML=`<div class="game-runtime player-runtime stage-${state.stage} role-${role.color}">${runtimeBackground(state)}${runtimeHud(state,"PRIVATE TERMINAL",role)}
@@ -928,7 +1242,6 @@ function renderPlayer(state) {
     <aside class="role-actions"><section><header>CREW LINK <b>${Object.keys(state.reports).length}/${state.playerCount}</b></header>${playerReport(state)}</section><section><header>ROLE OVERRIDE <b>${state.viewer.role in (state.interventions||{})?"USED":"READY"}</b></header><h2>${e(card.intervention)}</h2>${state.interventionFeedback?.[state.viewer.role]?`<p class="intervention-feedback">${e(state.interventionFeedback[state.viewer.role])}</p>`:button("Execute override","INTERVENTION","secondary",state.stageStatus!=="live"||state.viewer.role in (state.interventions||{}))}</section>${!isLead?decisionImpactPanel(state,true):""}</aside>
     ${fieldPlayerControl(state)}
     ${state.stage===5&&state.stageStatus==="live"?`<section class="cabin-player-control">${cabinAirPanel(state,true)}</section>`:""}
-    ${state.stage===6&&state.stageStatus==="live"?`<section class="archive-player-control">${archivePanel(state)}</section>`:""}
     ${isLead&&![1,2,3,5,6,7].includes(state.stage)&&state.stageStatus==="live"&&!(state.stage===4&&state.fieldRun?.active)?`<section class="lead-command"><header><span>CREW COMMITMENT / STAGE ${state.stage}</span><b>${state.stageDefinition.objective}</b></header><div class="lead-controls">${decisionControls(state)}</div>${decisionImpactPanel(state)}${button("Commit crew decision","COMMIT_STAGE","danger",!state.decisionPreview?.ready)}</section>`:""}
     ${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${state.stageStatus==="resolved"?immersiveOutcome(state):""}${act4Opening(state)}${safety(state)}${observerMode(state)}
   </div>`;
@@ -941,15 +1254,40 @@ function facilitatorRoleTools(state){
   return `<div class="fac-role-tools"><span>CREW RECOVERY</span>${connected.map(([id,r])=>`<div><b>${r.short}</b><button data-absent-role="${id}">${state.absentRoles?.[id]?"MARK PRESENT":"MARK ABSENT"}</button><button data-resend-role="${id}">RE-SEND CARD</button></div>`).join("")}${connected.length&&empty.length?`<form data-reassign><select name="from">${choiceOptions(connected.map(([id,r])=>[id,state.players[id].name||r.name]),connected[0][0])}</select><select name="to">${choiceOptions(empty.map(([id,r])=>[id,r.name]),empty[0][0])}</select><button>REASSIGN ROLE</button></form>`:""}</div>`;
 }
 
+function facilitatorImmersiveControls(state){
+  const progressionPaused=Boolean(state.clock.paused||state.clock.cinematicPaused);
+  const progressionActive=Boolean(state.clock.running||state.clock.cinematicActive&&!progressionPaused);
+  if(state.stage===7){
+    const phase=state.finale?.phase||"queue",timed=["transfer","console"].includes(phase),status=phase==="queue"?"AWAITING CREW ACTION":phase==="walk"?"TRANSFER WALK":phase==="power_failure"?"POWER FAILURE":phase.replaceAll("_"," ").toUpperCase();
+    const progressionControl=progressionActive?button("Pause","PAUSE","secondary"):progressionPaused?button("Resume","RESUME","secondary"):"";
+    return `<nav class="facilitator-immersive-controls" aria-label="Facilitator controls"><span>FACILITATOR · ${e(status)}</span>${progressionControl}${timed?button("+30 sec","ADD_TIME","secondary",state.stageStatus!=="live"):""}${button(state.safetyPaused?"Clear safety":"Safety pause","SAFETY","secondary")}${button("Restart Act 7","RESTART_ACT7","secondary")}</nav>`;
+  }
+  return `<nav class="facilitator-immersive-controls" aria-label="Facilitator controls"><span>FACILITATOR</span>${progressionActive?button("Pause","PAUSE","secondary"):button("Resume","RESUME","secondary",state.stageStatus!=="live"||!progressionPaused)}${button("+30 sec","ADD_TIME","secondary",state.stageStatus!=="live")}${button(state.safetyPaused?"Clear safety":"Safety pause","SAFETY","secondary")}${button("Restart Act 6","RESTART_ACT6","secondary")}</nav>`;
+}
+
 function renderFacilitator(state) {
   if (state.status === "lobby") return renderWaiting(state,"FACILITATOR CONTROL");
   if (state.status === "ending") return renderEnding(state,"facilitator");
+  if([6,7].includes(state.stage)&&state.stageStatus==="resolved"){app.innerHTML=act67ResolvedRuntime(state,"facilitator");return;}
   if(state.stage===1){app.innerHTML=act1Runtime(state,"facilitator");return;}
   if(state.stage===2){app.innerHTML=act2Runtime(state,"facilitator");return;}
   if(state.stage===3){app.innerHTML=act3Runtime(state,"facilitator");return;}
   if(state.stage===4){app.innerHTML=act4Runtime(state,"facilitator");return;}
+  if(state.stage===5&&state.stageStatus==="live"){if(!refreshAct5EmbeddedRuntime(state,"facilitator"))app.innerHTML=act5EmbeddedRuntime(state,"facilitator");return;}
+  if(state.stage===6&&state.stageStatus==="live"){
+    const phase=state.archive?.phase||"opening";
+    app.innerHTML=`<div class="game-runtime player-runtime facilitator-immersive act6-facilitator-runtime act6-phase-${e(phase)} stage-6">${runtimeBackground(state)}${runtimeHud(state,"FACILITATOR / ACT 6 AUTHORITY")}<section class="archive-player-control">${act6FacilitatorMonitor(state)}</section>${facilitatorImmersiveControls(state)}${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}</div>`;
+    return;
+  }
+  if(state.stage===7&&state.stageStatus==="live"){
+    const commandPhase=["queue","walk","transfer"].includes(state.finale?.phase);
+    app.innerHTML=`<div class="game-runtime player-runtime finale-runtime facilitator-immersive stage-7 act7-facilitator-runtime">${runtimeBackground(state)}${runtimeHud(state,"FACILITATOR / COMMAND MONITOR")}<section class="finale-player-stage">${commandPhase?act7CommandMonitor(state):finalePanel(state)}</section>${facilitatorImmersiveControls(state)}${state.hint?`<div class="runtime-alert"><b>FACILITATOR</b><span>${e(state.hint)}</span></div>`:""}${safety(state)}</div>`;
+    return;
+  }
+  const progressionPaused=Boolean(state.clock.paused||state.clock.cinematicPaused);
+  const progressionActive=Boolean(state.clock.running||state.clock.cinematicActive&&!progressionPaused);
   app.innerHTML=`<div class="game-runtime director-runtime stage-${state.stage}">${runtimeBackground(state)}${runtimeHud(state,"FACILITATOR / GAME MASTER")}
-    <aside class="director-left"><header>LIVE CONTROL</header><div class="director-buttons">${state.clock.running?button("Pause","PAUSE","secondary"):button("Resume","RESUME","secondary",state.stageStatus!=="live")}${button("+30 sec","ADD_TIME","secondary",state.stageStatus!=="live")}${button(state.safetyPaused?"Clear safety":"Safety pause","SAFETY","secondary")}${state.hint?button("Clear prompt","CLEAR_HINT","secondary"):button("Send prompt","HINT","secondary")}</div><div class="director-reports"><span>ROLE COMMS</span>${facReports(state)}</div>${facilitatorRoleTools(state)}</aside>
+    <aside class="director-left"><header>LIVE CONTROL</header><div class="director-buttons">${progressionActive?button("Pause","PAUSE","secondary"):button("Resume","RESUME","secondary",state.stageStatus!=="live"||!progressionPaused)}${button("+30 sec","ADD_TIME","secondary",state.stageStatus!=="live")}${button(state.safetyPaused?"Clear safety":"Safety pause","SAFETY","secondary")}${state.hint?button("Clear prompt","CLEAR_HINT","secondary"):button("Send prompt","HINT","secondary")}</div><div class="director-reports"><span>ROLE COMMS</span>${facReports(state)}</div>${facilitatorRoleTools(state)}</aside>
     <section class="director-center ${state.stage===6?"archive-director":state.stage===7?"finale-director":""}"><div class="director-mission"><span>STAGE ${String(state.stage).padStart(2,"0")} / ${state.stageDefinition.kicker}</span><h1>${e(state.stageDefinition.title)}</h1><p>${e(state.stageDefinition.objective)}</p>${storyContext(state,true)}</div><div class="director-decision"><header><span>${state.stage===1?"COLLECTIVE HANDOVER":state.stage===2?state.repairRun?.phase==="repair"?"SIMULTANEOUS REPAIRS":"REPAIR PRIORITISATION":state.stage===3?"OUTSIDE PLAN / PHYSICAL CHECK":state.stage===5?"CABIN SURVIVAL / ROTATION":state.stage===6?"LOCAL ARCHIVE / TIMED INVESTIGATION":state.stage===7?"R-12 EVACUATION / LIVE":"CREW DECISION ENGINE"}</span><b>${state.stageStatus.toUpperCase()}</b></header>${state.stageStatus==="live"?`${[1,2,3,4].includes(state.stage)?stageWorkflow(state,true):""}${decisionControls(state)}${[5,6,7].includes(state.stage)?"":decisionImpactPanel(state)}`:`<h2>${e(state.outcomes[state.stage]?.headline||"")}</h2><p>${e(state.outcomes[state.stage]?.detail||"")}</p>`}${state.stageStatus==="live"&&![5,6,7].includes(state.stage)&&!(state.stage===4&&state.fieldRun?.active)?button(state.stage===1?"Submit completed handover":state.stage===2&&state.repairRun?.phase==="planning"?"Lock assignments / begin repairs":state.stage===2?"Close repair window":state.stage===3?"Lock plan / deploy runner":"Resolve decision","COMMIT_STAGE","danger",!state.decisionPreview?.ready):state.facilitatorCanConfirmEnding?button("Confirm final record","CONFIRM_ENDING","danger"):state.facilitatorCanAdvance?button("Trigger next stage","ADVANCE_STAGE","primary"):""}</div></section>
     <aside class="director-right"><div class="station-state-head">${gameIcon("runtime-telemetry-rack.webp","Station telemetry rack","station-state-icon")}<div><header>STATION STATE</header>${tracks(state)}</div></div><div class="director-resources"><span>RESPIRATOR <b>${e(state.global.respirator.toUpperCase())}</b></span><span>LOCK KNOWLEDGE <b>${state.global.lockKnowledge}/2</b></span><span>AIR BUFFER <b>${state.resources.airHandlingBuffer}</b></span><span>SAFEGUARD <b>${state.resources.safetyGuard}</b></span></div>${environmentStrip(state,true)}${signalIntercept(state,true)}<div class="director-evidence"><span>EVIDENCE / ${state.global.evidence.length}</span>${evidence(state)}</div><div class="director-log"><span>EVENT LOG</span>${state.history.slice(-6).reverse().map(h=>`<p><b>${new Date(h.at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</b>${e(h.text)}</p>`).join("")}</div></aside>
     ${state.stageStatus==="resolved"?immersiveOutcome(state,true):""}${act4Opening(state)}${safety(state)}
@@ -958,6 +1296,11 @@ function renderFacilitator(state) {
 
 const compactValue=value=>Array.isArray(value)?value.map(compactValue).join("+"):value&&typeof value==="object"?Object.entries(value).map(([key,item])=>`${key}:${compactValue(item)}`).join(", "):String(value);
 const decisionSummary=decision=>Array.isArray(decision)?decision.map((round,index)=>`R${index+1}: ${decisionSummary(round)}`).join(" / "):Object.entries(decision||{}).map(([key,value])=>`${key}=${compactValue(value)}`).join(" · ");
+const debriefIcons={
+  1:"01-immediate-reaction-v1.webp",2:"02-status-failure-v1.webp",3:"03-role-map-v1.webp",
+  4:"04-hesitation-v1.webp",5:"05-ai-bridge-v1.webp",6:"06-first-step-v1.webp"
+};
+const debriefIcon=step=>`<img src="./assets/images/ending/debrief/${debriefIcons[step]||debriefIcons[1]}" alt="">`;
 
 function debriefContext(state,current,mode){
   if(current?.id===2)return `<section class="debrief-context status-failure-map">${[["OPERATIONAL","Relay transmitting—not people safe"],["GREEN","May describe a stale frozen feed"],["NO ACTIVE DISTRESS","Silence compressed into certainty"],["LOWER ROUTE","Legacy station route—not downhill road"]].map(([label,meaning])=>`<article><b>${label}</b><span>${meaning}</span></article>`).join("")}</section>`;
@@ -970,7 +1313,7 @@ function debriefContext(state,current,mode){
 function debriefPanel(state, mode) {
   const steps=state.debrief?.steps||[],current=steps.find(item=>item.id===state.debrief.currentStep)||steps[0];
   const submitted=state.viewer.kind==="player"?state.debrief?.firstSteps?.[state.viewer.role]:null;
-  return `<section class="ending-debrief"><header><span>AFTER-ACTION SIGNAL</span><b>AI-READY LEADER DEBRIEF · STEP ${String(current?.id||1).padStart(2,"0")} / 06</b></header><h2>${e(current?.title||"Immediate reactions")}</h2><p class="debrief-current-prompt">${e(current?.prompt||"")}</p><div class="debrief-step-rail">${steps.map(step=>`<i data-step="${step.id}" class="${step.id===current?.id?"active":step.id<current?.id?"done":""}"><b>${e(step.title)}</b></i>`).join("")}</div>${debriefContext(state,current,mode)}${mode==="player"&&current?.id===6?`<form class="first-step-form" data-first-step><label>YOUR BOUNDED WORKPLACE ACTION<textarea name="note" maxlength="280" required placeholder="I will challenge or clarify…">${e(submitted?.note||"")}</textarea></label><button>${submitted?"UPDATE FIRST STEP":"RECORD FIRST STEP"}</button></form>`:""}</section>`;
+  return `<section class="ending-debrief"><header><span>AFTER-ACTION SIGNAL</span><b>AI-READY LEADER DEBRIEF · STEP ${String(current?.id||1).padStart(2,"0")} / 06</b></header><h2>${e(current?.title||"Immediate reactions")}</h2><p class="debrief-current-prompt">${e(current?.prompt||"")}</p><div class="debrief-step-rail">${steps.map(step=>`<i data-step="${step.id}" class="${step.id===current?.id?"active":step.id<current?.id?"done":""}">${debriefIcon(step.id)}<b>${e(step.title)}</b></i>`).join("")}</div>${debriefContext(state,current,mode)}${mode==="player"&&current?.id===6?`<form class="first-step-form" data-first-step><label>YOUR BOUNDED WORKPLACE ACTION<textarea name="note" maxlength="280" required placeholder="I will challenge or clarify…">${e(submitted?.note||"")}</textarea></label><button>${submitted?"UPDATE FIRST STEP":"RECORD FIRST STEP"}</button></form>`:""}</section>`;
 }
 
 function playtestForm(state){
@@ -983,19 +1326,54 @@ function playtestForm(state){
 function facilitatorDebrief(state) {
   const steps=state.debrief?.steps||[],current=steps.find(item=>item.id===state.debrief.currentStep)||steps[0],note=state.debrief?.notes?.[current?.id]||"";
   const firstSteps=Object.entries(state.debrief?.firstSteps||{});
-  return `<aside class="ending-log debrief-facilitator"><header>FACILITATOR DEBRIEF / 20–25 MIN</header><nav>${steps.map(step=>`<button class="${step.id===current?.id?"active":""}" data-debrief-step="${step.id}">${String(step.id).padStart(2,"0")}</button>`).join("")}</nav><strong>${e(current?.title||"")}</strong><p class="fac-debrief-prompt">${e(current?.prompt||"")}</p><form data-debrief-note><input type="hidden" name="step" value="${current?.id||1}"><textarea name="note" maxlength="1200" placeholder="Capture observations without diagnosing participants…">${e(note)}</textarea><button>SAVE FACILITATOR NOTE</button></form><section><b>FIRST-STEP RECORD / ${firstSteps.length}/${state.playerCount}</b>${firstSteps.length?firstSteps.map(([role,item])=>`<p><i>${e(state.roles[role]?.short||role)}</i>${e(item.name)} — ${e(item.note)}</p>`).join(""):"<p>Waiting for participant commitments at Step 06.</p>"}</section><button class="debrief-export" data-download-summary>EXPORT SESSION RECORD</button>${playtestForm(state)}</aside>`;
+  const guides={
+    1:{time:"3 MIN",goal:"Surface the room before explaining it.",cues:["Invite one short reaction from every participant.","Separate emotional pressure from technical interpretation."]},
+    2:{time:"4 MIN",goal:"Rebuild how confident labels failed.",cues:["Name what each status actually measured.","Identify the missing human or environmental evidence."]},
+    3:{time:"4 MIN",goal:"Make every responsibility visible.",cues:["Ask what each role protected for the crew.","Notice which perspective arrived late or was ignored."]},
+    4:{time:"4 MIN",goal:"Diagnose hesitation without diagnosing people.",cues:["Locate the moment action slowed or ownership blurred.","Select observed behaviour lenses, not personality labels."]},
+    5:{time:"4 MIN",goal:"Transfer the lesson into real AI-enabled work.",cues:["Find a false proxy in a real dashboard or AI output.","Name the smallest safeguarded test of that label."]},
+    6:{time:"3–6 MIN",goal:"Close with one bounded workplace action each.",cues:["Make each commitment specific and observable.","Confirm who or what will provide the missing evidence."]}
+  };
+  const guide=guides[current?.id]||guides[1];
+  return `<aside class="ending-log debrief-facilitator fac-debrief-tabs"><header><span>FACILITATOR DEBRIEF / 20–25 MIN</span><b>STEP ${String(current?.id||1).padStart(2,"0")} / 06 · ${guide.time}</b></header><div class="fac-debrief-tablist" role="tablist" aria-label="Facilitator debrief steps">${steps.map(step=>`<button role="tab" aria-selected="${step.id===current?.id}" class="${step.id===current?.id?"active":""}" data-debrief-step="${step.id}">${debriefIcon(step.id)}<span>${String(step.id).padStart(2,"0")}</span><b>${e(step.title)}</b><small>${guides[step.id]?.time||""}</small></button>`).join("")}</div><section class="fac-debrief-tab-panel" role="tabpanel"><div class="fac-debrief-feature"><div class="fac-debrief-feature-icon">${debriefIcon(current?.id||1)}</div><div><span>STEP ${String(current?.id||1).padStart(2,"0")} · ${guide.time}</span><h3>${e(current?.title||"")}</h3><p>${e(current?.prompt||"")}</p></div></div><div class="fac-debrief-guide"><strong>${e(guide.goal)}</strong><ul>${guide.cues.map(cue=>`<li>${e(cue)}</li>`).join("")}</ul></div>${debriefContext(state,current,"facilitator")}<form data-debrief-note><input type="hidden" name="step" value="${current?.id||1}"><label>FACILITATOR OBSERVATIONS<textarea name="note" maxlength="1200" placeholder="Capture observations without diagnosing participants…">${e(note)}</textarea></label><button>SAVE NOTE</button></form><section class="fac-first-step-record"><b>FIRST-STEP RECORD / ${firstSteps.length}/${state.playerCount}</b>${firstSteps.length?firstSteps.map(([role,item])=>`<p><i>${e(state.roles[role]?.short||role)}</i>${e(item.name)} — ${e(item.note)}</p>`).join(""):"<p>Participant commitments appear here during Step 06.</p>"}</section><div class="fac-debrief-tools"><button class="debrief-export" data-download-summary>EXPORT SESSION RECORD</button>${playtestForm(state)}</div></section></aside>`;
 }
 
 function renderEnding(state, mode) {
   const x=state.ending;
-  const clean=x.band==="clean"||x.title==="CLEAN RESCUE",recovered=["clean","severe"].includes(x.band),calculation=x.calculation||{};
-  const finalImage=recovered?"mara-venn-below.webp":"auxiliary-relay-hold.webp";
-  app.innerHTML=`<div class="game-runtime ending-runtime ${clean?"clean-rescue":"critical-ending"} ${mode==="facilitator"?"facilitator-ending":""}"><div class="runtime-world"><img src="${gameImage(finalImage)}" alt="Final Blackout Ridge outcome"><div class="runtime-grade"></div><div class="scan-sweep"></div></div>${runtimeHud(state,mode==="facilitator"?"FACILITATOR / FINAL RECORD":"FINAL TRANSMISSION")}
-    <section class="ending-transmission"><span>STAGE 07 / 07&nbsp;&nbsp;·&nbsp;&nbsp;FINAL OUTCOME</span><h1>${e(x.title)}</h1><p>${e(x.body)}</p><div class="ending-verdict"><i class="${calculation.status==="DISTRESS"?"confirmed":"failed"}"><b>${calculation.status==="DISTRESS"?"✓":"×"}</b>${e(calculation.status||"STATUS UNKNOWN")}</i><i class="${calculation.message==="CLEAR"?"confirmed":"failed"}"><b>${calculation.message==="CLEAR"?"✓":"×"}</b>EXTRACTION ${e(calculation.message||"NONE")}</i><i class="${calculation.release==="ENABLED"?"confirmed":"failed"}"><b>${calculation.release==="ENABLED"?"✓":"×"}</b>RELEASE ${e(calculation.release||"INHIBITED")}</i></div></section>
+  const endingArt={
+    F01:"./assets/images/act7/production/ending-f01-v1.webp",
+    F02:"./assets/images/act7/production/ending-f02-v1.webp",
+    F03:"./assets/images/act7/production/ending-f03-v1.webp",
+    F04:"./assets/images/act7/production/ending-f04-v1.webp",
+    F05:"./assets/images/act7/production/ending-f05-v1.webp"
+  };
+  const endingFilm={F01:"f01",F02:"f02",F03:"f03",F04:"f04",F05:"f05"};
+  const clean=x.film==="F01"||x.band==="clean",calculation=x.calculation||{},background=endingArt[x.film]||endingArt.F05,film=endingFilm[x.film]||endingFilm.F05;
+  const facilitatorBackground=clean?"./assets/images/act7/production/facilitator-final-dossier-v2.webp":"./assets/images/act7/production/facilitator-final-critical-v2.webp";
+  const endingMedia=mode==="facilitator"?`<img class="facilitator-record-art" src="${facilitatorBackground}" alt="${clean?"Open R-12 shutters with rescue responders approaching":"Closed R-12 shutters after the final outcome"}">`:`<video data-act67-cinematic data-started-at="${state.metrics?.endedAt||Date.now()}" autoplay playsinline preload="auto" poster="${background}" aria-label="${e(x.film||"F05")} cinematic ending scene"><source src="./assets/media/act7/finale/${film}-v1.mp4" type="video/mp4"></video>`;
+  const fates=(calculation.fates||[]).map(item=>`<li class="${item.survived?"survived":"died"}"><b>${e(item.name)}</b><span>${item.survived?"SURVIVED":"DIED"}</span><small>EXPOSURE ${e(item.exposure)} · TOLERANCE ${e(item.toleranceHours)} H</small></li>`).join("");
+  const verdicts=`<div class="ending-verdict"><i class="${calculation.status==="DISTRESS"?"confirmed":"failed"}"><b>${calculation.status==="DISTRESS"?"✓":"×"}</b>${e(calculation.status||"STATUS UNKNOWN")}</i><i class="${["CLEAR","DEGRADED"].includes(calculation.message)?"confirmed":"failed"}"><b>${["CLEAR","DEGRADED"].includes(calculation.message)?"✓":"×"}</b>EXTRACTION ${e(calculation.message||"NONE")}</i><i class="${calculation.release==="OPEN"?"confirmed":"failed"}"><b>${calculation.release==="OPEN"?"✓":"×"}</b>${e(calculation.release||"SECURE ISOLATION")}</i></div>`;
+  const facilitatorVerdicts=[[calculation.status==="DISTRESS",calculation.status||"STATUS UNKNOWN"],[ ["CLEAR","DEGRADED"].includes(calculation.message),`EXTRACTION ${calculation.message||"NONE"}`],[calculation.release==="OPEN",calculation.release||"SECURE ISOLATION"]].map(([confirmed,label])=>`<span class="${confirmed?"confirmed":"failed"}"><b>${confirmed?"✓":"×"}</b><strong>${e(label)}</strong></span>`).join("");
+  const facilitatorFates=(calculation.fates||[]).map(item=>`<article class="${item.survived?"survived":"died"}"><header><strong>${e(item.name)}</strong><b>${item.survived?"SURVIVED":"DIED"}</b></header><p>EXPOSURE ${e(item.exposure)} · TOLERANCE ${e(item.toleranceHours)} H</p></article>`).join("");
+  if(mode==="facilitator"){
+    app.innerHTML=`<div class="game-runtime ending-runtime facilitator-ending facilitator-final-dossier ${clean?"clean-rescue":"critical-ending"}"><div class="runtime-world">${endingMedia}<div class="runtime-grade"></div><div class="scan-sweep"></div></div>${runtimeHud(state,"FACILITATOR / FINAL RECORD")}
+      <main class="fac-final-layout">
+        <section class="fac-final-outcome"><span>${e(x.film||"F05")} · FINAL OUTCOME · R-12 RESPONSE RECORD</span><h1>${e(x.title)}</h1><p>${e(x.body)}</p><div class="fac-outcome-status">${facilitatorVerdicts}</div>${facilitatorFates?`<div class="fac-survivor-records">${facilitatorFates}</div>`:""}</section>
+        <aside class="fac-final-command">
+          <header class="fac-final-command-head"><img src="./assets/images/ending/icons/mission-complete-seal-v2.webp" alt=""><div><span>MISSION DOSSIER / STAGE 07 COMPLETE</span><h2>${clean?"RESCUE SECURED":"RECORD CLOSED"}</h2><p>${clean?"Confirmed responder handover":"Final operational record"}</p></div><button class="ending-restart-control fac-final-head-restart" data-restart-act7><img src="./assets/images/ending/icons/restart-session-v1.webp" alt=""><span>RESTART ACT 7<small>SAME CREW</small></span></button></header>
+          <section class="fac-final-metrics"><article><span>AIR</span><b>${calculation.finalAir!==undefined?`${e(calculation.finalAir)}/100`:"RECORDED"}</b><small>FINAL RESERVE</small></article><article><span>CREW</span><b>${e(x.rescueOutcome||`${calculation.occupancy||0} RECORDED`)}</b><small>${e(x.survivalOutcome||"OUTCOME LOGGED")}</small></article><article><span>CHANNEL</span><b>${clean?"OPEN":"CLOSED"}</b><small>${clean?"EXTRACTION CONFIRMED":"RESPONDER RECORD"}</small></article></section>
+          ${facilitatorDebrief(state)}
+        </aside>
+      </main>
+    </div>`;
+    return;
+  }
+  app.innerHTML=`<div class="game-runtime ending-runtime ${clean?"clean-rescue":"critical-ending"} ${mode==="facilitator"?"facilitator-ending":""}"><div class="runtime-world">${endingMedia}<div class="runtime-grade"></div><div class="scan-sweep"></div></div>${runtimeHud(state,mode==="facilitator"?"FACILITATOR / FINAL RECORD":"FINAL TRANSMISSION")}
+    <section class="ending-transmission"><span>${e(x.film||"F05")} &nbsp;·&nbsp; STAGE 07 / 07&nbsp;&nbsp;·&nbsp;&nbsp;FINAL OUTCOME</span><h1>${e(x.title)}</h1><p>${e(x.body)}</p>${verdicts}${fates?`<ul class="ending-fates">${fates}</ul>`:""}</section>
     <div class="ending-right-stack">
       <div class="ending-stage-seal" aria-label="Stage 7 of 7 complete"><span>FINAL CHALLENGE</span><strong>07</strong><i>/ 07</i><b>${clean?"RESCUE SECURED":"FINAL RECORD"}</b></div>
       <aside class="ending-truth"><header><span>R-12 FINAL RECORD</span><i>${clean?"LIVE / CONFIRMED":"FINAL / DEGRADED"}</i></header><div><span>AIR / OCCUPANCY</span><b>${calculation.finalAir!==undefined?`${e(calculation.finalAir)}/100 · ${e(calculation.occupancy)} OCCUPANTS`:e(x.statusOutcome||"RECORDED")}</b></div><div><span>RESCUE / SURVIVAL</span><b>${e(x.rescueOutcome||`MARA: ${x.mara.toUpperCase().replaceAll("_"," ")}`)}</b><small>${e(x.survivalOutcome||`CREW ${x.crew.toUpperCase()}`)}</small></div><footer><i></i><span>${clean?"EXTRACTION CHANNEL OPEN":"RESPONDER RECORD CLOSED"}</span></footer></aside>
-      ${mode==="facilitator"?`${facilitatorDebrief(state)}<button class="ending-restart-control" data-restart-open><img src="./assets/images/ending/icons/restart-session-v1.webp" alt=""><span>RESTART FORMER SESSION<small>SAME CODE · SAME CREW · RETURN TO ACT 1</small></span></button>`:""}
+      ${mode==="facilitator"?`${facilitatorDebrief(state)}<button class="ending-restart-control" data-restart-act7><img src="./assets/images/ending/icons/restart-session-v1.webp" alt=""><span>RESTART ACT 7<small>SAME CODE · SAME CREW · REPLAY FINAL ACT</small></span></button>`:""}
     </div>
     ${debriefPanel(state,mode)}
   </div>`;
@@ -1035,7 +1413,8 @@ function chatMessageMarkup(state,message){
 
 function renderChat(state){
   document.querySelector(".crew-chat-root")?.remove();
-  if(!state||state.stage===1||(state.viewer.kind!=="player"&&state.viewer.kind!=="facilitator")||state.viewer.kind==="player"&&state.finale?.communicationLocked)return;
+  const act6Cinematic=state?.stage===6&&["opening","nightmare"].includes(state.archive?.phase);
+  if(!state||state.stage===1||(state.viewer.kind!=="player"&&state.viewer.kind!=="facilitator")||state.viewer.kind==="player"&&(state.finale?.communicationLocked||act6Cinematic))return;
   const messages=state.chatMessages||[];
   const markup=`<section class="crew-chat-root ${chatOpen?"open":""}">
     ${chatAlert&&!chatOpen?`<button class="crew-chat-alert" data-chat-open><b>NEW MESSAGE / ${e(chatAlert.senderName)}</b><span>${e(chatAlert.text)}</span></button>`:""}
@@ -1062,6 +1441,8 @@ function render(state) {
   activateAct1LeadIn(state);
   activateAct2Opening(state);
   activateAct4Opening(state);
+  activateAct67Cinematic();
+  activateAct7Cctv();
 }
 
 app.addEventListener("submit",async event=>{
@@ -1108,10 +1489,12 @@ app.addEventListener("submit",async event=>{
     if (event.target.matches("[data-reassign]")) { const data=new FormData(event.target); await client.action("REASSIGN_PLAYER",{from:data.get("from"),to:data.get("to")}); }
     if (event.target.matches("[data-debrief-note]")) { const data=new FormData(event.target); await client.action("SAVE_DEBRIEF_NOTE",{step:Number(data.get("step")),note:data.get("note")}); }
     if (event.target.matches("[data-first-step]")) { const data=new FormData(event.target); await client.action("SAVE_FIRST_STEP",{note:data.get("note")}); }
-    if (event.target.matches("[data-playtest]")) { const data=new FormData(event.target),ratings={};for(const item of client.state.playtest?.criteria||[]){const value=data.get(`rating_${item.id}`);if(value)ratings[item.id]=Number(value);}await client.action("SAVE_PLAYTEST",{ratings,disposition:data.get("disposition"),notes:data.get("notes")}); }
+  if (event.target.matches("[data-playtest]")) { const data=new FormData(event.target),ratings={};for(const item of client.state.playtest?.criteria||[]){const value=data.get(`rating_${item.id}`);if(value)ratings[item.id]=Number(value);}await client.action("SAVE_PLAYTEST",{ratings,disposition:data.get("disposition"),notes:data.get("notes")}); }
+    if(event.target.matches("[data-act6-config]")){const data=new FormData(event.target);await client.action("CONFIGURE_ACT6",Object.fromEntries([...data.entries()].map(([key,value])=>[key,Number(value)])));stationAudio.cue("commit");return;}
+    if(event.target.matches("[data-message-verdict]")){const data=new FormData(event.target);await client.action("CLASSIFY_MESSAGE",{rating:data.get("rating")});stationAudio.cue("commit");return;}
     if(event.target.matches("[data-surface-form]")){
-      const data=new FormData(event.target);await client.action("UPDATE_SURFACE",{status:data.get("status"),message:data.get("message"),isolation:data.get("isolation"),authority:data.get("authority"),releaseTest:data.get("releaseTest")==="on"});
-      await client.action("SUBMIT_SURFACE");stationAudio.cue("commit");
+      const data=new FormData(event.target);await client.action("UPDATE_SURFACE",{message:data.get("message")||""});
+      stationAudio.cue("confirm");
     }
   } catch(cause) {
     error=cause.message;
@@ -1142,6 +1525,8 @@ app.addEventListener("input",event=>{
 });
 
 app.addEventListener("click",async event=>{
+  const act5FacilitatorTab=event.target.closest("[data-act5-fac-tab]");
+  if(act5FacilitatorTab){act5FacTab=act5FacilitatorTab.dataset.act5FacTab;const root=act5FacilitatorTab.closest(".act5-facilitator-dock");root.querySelectorAll("[data-act5-fac-tab]").forEach(node=>node.classList.toggle("active",node===act5FacilitatorTab));root.querySelectorAll("[data-act5-fac-panel]").forEach(node=>node.hidden=node.dataset.act5FacPanel!==act5FacTab);stationAudio.cue("confirm");return;}
   const facilitatorTab=event.target.closest("[data-act4-fac-tab]");
   if(facilitatorTab){act4FacTab=facilitatorTab.dataset.act4FacTab;const root=facilitatorTab.closest(".act4-fac-console");root.querySelectorAll("[data-act4-fac-tab]").forEach(node=>node.classList.toggle("active",node===facilitatorTab));root.querySelectorAll("[data-act4-fac-panel]").forEach(node=>node.hidden=node.dataset.act4FacPanel!==act4FacTab);stationAudio.cue("confirm");return;}
   const moduleTab=event.target.closest("[data-act4-module-tab]");
@@ -1180,6 +1565,12 @@ app.addEventListener("click",async event=>{
   if(restartAct3){restartAct3.disabled=true;try{await client.action("RESTART_ACT3");act3Resource="navigation";stationAudio.cue("commit");}catch(cause){restartAct3.disabled=false;stationAudio.cue("error");alert(cause.message);}return;}
   const restartAct4=event.target.closest("[data-restart-act4]");
   if(restartAct4){restartAct4.disabled=true;try{await client.action("RESTART_ACT4");stationAudio.cue("commit");}catch(cause){restartAct4.disabled=false;stationAudio.cue("error");alert(cause.message);}return;}
+  const restartAct5=event.target.closest("[data-restart-act5]");
+  if(restartAct5){restartAct5.disabled=true;try{await client.action("RESTART_ACT5");stationAudio.cue("commit");}catch(cause){restartAct5.disabled=false;stationAudio.cue("error");alert(cause.message);}return;}
+  const restartAct6=event.target.closest("[data-restart-act6]");
+  if(restartAct6){restartAct6.disabled=true;try{await client.action("RESTART_ACT6");stationAudio.cue("commit");}catch(cause){restartAct6.disabled=false;stationAudio.cue("error");alert(cause.message);}return;}
+  const restartAct7=event.target.closest("[data-restart-act7]");
+  if(restartAct7){restartAct7.disabled=true;try{await client.action("RESTART_ACT7");stationAudio.cue("commit");}catch(cause){restartAct7.disabled=false;stationAudio.cue("error");alert(cause.message);}return;}
   const restartOpen=event.target.closest("[data-restart-open]");
   if(restartOpen){
     restartOpen.disabled=true;
@@ -1223,11 +1614,49 @@ app.addEventListener("click",async event=>{
   const cabinControl=event.target.closest("[data-cabin-control]");
   if(cabinControl){try{await client.action("CABIN_MOVE",{control:cabinControl.dataset.cabinControl,value:cabinControl.dataset.cabinValue||null});stationAudio.cue("confirm");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
   const transferStep=event.target.closest("[data-transfer-step]");
+  const beginDescent=event.target.closest("[data-begin-descent]");
+  if(beginDescent){try{await client.action("BEGIN_DESCENT");stationAudio.mechanical("transfer");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const act7Key=event.target.closest("[data-act7-key]");
+  if(act7Key){try{await client.action("ACT7_MECHANIC",{action:"select_key",keyId:act7Key.dataset.act7Key});stationAudio.mechanical("key");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const act7Action=event.target.closest("[data-act7-action]");
+  if(act7Action){const actionName=act7Action.dataset.act7Action;const sound={insert_key:"key",turn_key:"key",open_hatch:"hatch",enter_hatch:"transfer",close_hatch:"lid",clamp:"clamp",fill:"fill",vent:"vent",hold:"switch",test_seal:"test",shake:"shaker",fire_purge:"purge",enter_r12:"arrival"}[actionName]||"switch";try{await client.action("ACT7_MECHANIC",{action:actionName});stationAudio.mechanical(sound);}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const act7Mask=event.target.closest("[data-act7-mask]");
+  if(act7Mask){try{await client.action("ACT7_MASK",{action:act7Mask.dataset.act7Mask,maskId:Number(act7Mask.dataset.act7MaskId||0)});stationAudio.mechanical("mask");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const r12View=event.target.closest("[data-r12-view]");
+  if(r12View){
+    const viewName=r12View.dataset.r12View;act7R12View=viewName;
+    if(viewName==="cctv")act7Camera=1;
+    if(viewName==="manuals")act7ManualPage=0;
+    if(viewName!=="room")try{await client.action("R12_HOTSPOT",{hotspot:viewName});stationAudio.cue("confirm");}catch(cause){stationAudio.cue("error");alert(cause.message);}
+    render(client.state);return;
+  }
+  const r12Dialogue=event.target.closest("[data-r12-dialogue]");
+  if(r12Dialogue){try{await client.action("R12_DIALOGUE",{index:Number(r12Dialogue.dataset.r12Dialogue)});stationAudio.cue("confirm");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const r12Camera=event.target.closest("[data-r12-camera]");
+  if(r12Camera){act7Camera=Number(r12Camera.dataset.r12Camera);try{await client.action("R12_CAMERA",{camera:act7Camera});stationAudio.cue("confirm");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const r12CameraWatch=event.target.closest("[data-r12-camera-watch]");
+  if(r12CameraWatch){try{await client.action("R12_CAMERA",{camera:Number(r12CameraWatch.dataset.r12CameraWatch),watch:true});stationAudio.cue("commit");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const r12Receiver=event.target.closest("[data-r12-receiver]");
+  if(r12Receiver){act7Receiver=r12Receiver.dataset.r12Receiver;render(client.state);return;}
+  const r12Manual=event.target.closest("[data-r12-manual]");
+  if(r12Manual){act7ManualPage=Math.max(0,Math.min(3,act7ManualPage+(r12Manual.dataset.r12Manual==="next"?1:-1)));render(client.state);return;}
+  const finalControl=event.target.closest("[data-final-control]");
+  if(finalControl){
+    const id=finalControl.dataset.finalControl;
+    try{
+      if(id==="white"){const message=document.querySelector('.final-message-field textarea')?.value||"";await client.action("UPDATE_SURFACE",{message,white:true});}
+      else await client.action("UPDATE_SURFACE",{[id]:true});
+      stationAudio.mechanical(id);
+    }catch(cause){stationAudio.cue("error");alert(cause.message);}
+    return;
+  }
+  const r12Hotspot=event.target.closest("[data-r12-hotspot]");
+  if(r12Hotspot){act7Hotspot=r12Hotspot.dataset.r12Hotspot;try{await client.action("R12_HOTSPOT",{hotspot:act7Hotspot});stationAudio.cue("confirm");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
   if(transferStep){try{await client.action("TRANSFER_STEP",{step:transferStep.dataset.transferStep});stationAudio.cue("confirm");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
-  const purge=event.target.closest("[data-r12-purge]");
-  if(purge){try{await client.action("R12_PURGE");stationAudio.cue("commit");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
   const rating=event.target.closest("[data-message-rating]");
   if(rating){try{await client.action("CLASSIFY_MESSAGE",{rating:rating.dataset.messageRating});stationAudio.cue("commit");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const calculateEnding=event.target.closest("[data-calculate-ending]");
+  if(calculateEnding){try{await client.action("CALCULATE_ENDING");stationAudio.cue("commit");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
   const absent=event.target.closest("[data-absent-role]");
   if(absent){await client.action("SET_ABSENT",{role:absent.dataset.absentRole,absent:!client.state.absentRoles?.[absent.dataset.absentRole]});return;}
   const resend=event.target.closest("[data-resend-role]");
@@ -1244,13 +1673,27 @@ app.addEventListener("click",async event=>{
   try{await client.action(target.dataset.action);stationAudio.cue(target.dataset.action==="COMMIT_STAGE"?"commit":"confirm");}catch(cause){error=cause.message;stationAudio.cue("error");alert(error);}
 });
 
-app.addEventListener("keydown",event=>{if(event.key!=="Escape")return;if(act2StatusOpen){act2StatusOpen=false;render(client.state);return;}if(chatOpen){chatOpen=false;renderChat(client.state);}});
+app.addEventListener("keydown",async event=>{if(event.code==="Space"&&client.state?.finale?.mechanics?.phase==="purge"&&!/INPUT|TEXTAREA|BUTTON/.test(event.target.tagName)){event.preventDefault();try{await client.action("ACT7_MECHANIC",{action:"fire_purge"});stationAudio.mechanical("purge");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}if(event.key!=="Escape")return;if(act2StatusOpen){act2StatusOpen=false;render(client.state);return;}if(chatOpen){chatOpen=false;renderChat(client.state);}});
 
-app.addEventListener("input",event=>{
-  if(!event.target.matches("[data-archive-search]"))return;
-  const panel=event.target.closest(".lark-archive"),query=event.target.value.trim().toLowerCase();let visible=0;
-  panel?.querySelectorAll("[data-archive-record]").forEach(card=>{const match=!query||card.dataset.search.includes(query);card.hidden=!match;if(match)visible++;});
-  const empty=panel?.querySelector("[data-archive-empty]");if(empty)empty.hidden=visible!==0;
+app.addEventListener("dragstart",event=>{const key=event.target.closest("[data-act7-key]");if(!key)return;act7DraggedKey=key.dataset.act7Key;event.dataTransfer?.setData("text/plain",act7DraggedKey);});
+app.addEventListener("dragover",event=>{if(event.target.closest("[data-act7-key-socket]"))event.preventDefault();});
+app.addEventListener("drop",async event=>{if(!event.target.closest("[data-act7-key-socket]"))return;event.preventDefault();const keyId=event.dataTransfer?.getData("text/plain")||act7DraggedKey;if(!keyId)return;try{await client.action("ACT7_MECHANIC",{action:"select_key",keyId});await client.action("ACT7_MECHANIC",{action:"insert_key"});stationAudio.mechanical("key");}catch(cause){stationAudio.cue("error");alert(cause.message);}});
+app.addEventListener("change",async event=>{
+  if(event.target.matches("[data-act7-hatch-drag]")){try{await client.action("ACT7_MECHANIC",{action:"set_hatch",value:Number(event.target.value)/100});if(Number(event.target.value)>=100)stationAudio.mechanical("hatch");}catch(cause){stationAudio.cue("error");alert(cause.message);}return;}
+  const sealDrag=event.target.closest("[data-act7-seal-drag]");if(!sealDrag)return;
+  const action=sealDrag.dataset.act7SealDrag==="clamp"?"set_clamp":"set_close";
+  try{await client.action("ACT7_MECHANIC",{action,value:Number(sealDrag.value)/100});if(Number(sealDrag.value)>=100)stationAudio.mechanical(action==="set_clamp"?"clamp":"lid");}catch(cause){stationAudio.cue("error");alert(cause.message);}
+});
+app.addEventListener("pointerdown",event=>{const hold=event.target.closest("[data-act7-hold]");if(hold&&!hold.disabled){event.preventDefault();clearInterval(act7HoldTimer);const action=hold.dataset.act7Hold;stationAudio.mechanical(action);const pulse=()=>client.action("ACT7_MECHANIC",{action}).catch(()=>clearInterval(act7HoldTimer));pulse();act7HoldTimer=setInterval(pulse,240);return;}const shaker=event.target.closest("[data-act7-shaker]");if(shaker){event.preventDefault();stationAudio.mechanical("shaker");act7Shaker={active:true,lastX:event.clientX,lastDirection:0,busy:false};shaker.setPointerCapture?.(event.pointerId);}});
+app.addEventListener("pointermove",async event=>{if(!act7Shaker.active||act7Shaker.busy||act7Shaker.lastX===null)return;const delta=event.clientX-act7Shaker.lastX;if(Math.abs(delta)<24)return;const direction=Math.sign(delta);act7Shaker.lastX=event.clientX;if(direction===act7Shaker.lastDirection)return;act7Shaker.lastDirection=direction;act7Shaker.busy=true;try{await client.action("ACT7_MECHANIC",{action:"shake",amount:4});}catch{}finally{act7Shaker.busy=false;}});
+const stopAct7Gesture=()=>{if(act7HoldTimer){clearInterval(act7HoldTimer);act7HoldTimer=null;if(client.state?.finale?.mechanics?.phase==="seal")client.action("ACT7_MECHANIC",{action:"hold"}).catch(()=>{});}act7Shaker.active=false;};
+window.addEventListener("pointerup",stopAct7Gesture);window.addEventListener("pointercancel",stopAct7Gesture);
+
+app.addEventListener("click",event=>{
+  const page=event.target.closest("[data-archive-page]");
+  if(!page)return;
+  act6ArchivePage=Number(page.dataset.archivePage)||0;
+  render(client.state);
 });
 
 function tick(){const state=client.state;if(!state)return;document.querySelectorAll("[data-clock]").forEach(node=>node.textContent=clockDisplay(state));const intro=document.querySelector("[data-act1-lead-in]");if(intro&&state.act1Intro){const left=Math.max(0,Math.ceil((state.act1Intro.endsAt-Date.now())/1000)),label=document.querySelector("[data-intro-countdown]");if(label)label.textContent=`HANDOVER IN ${String(left).padStart(2,"0")}`;if(!left)render(state);}const act2=document.querySelector("[data-act2-opening]");if(act2&&state.act2Intro){const left=Math.max(0,Math.ceil((state.act2Intro.endsAt-Date.now())/1000)),label=act2.querySelector("[data-act2-opening-countdown]");if(label)label.textContent=String(left).padStart(2,"0");if(!left)render(state);}const act3=document.querySelector("[data-act3-opening]");if(act3&&state.act3Intro){const left=Math.max(0,Math.ceil((state.act3Intro.endsAt-Date.now())/1000)),elapsed=Math.max(0,(Date.now()-state.act3Intro.startedAt)/1000),beat=elapsed<9?0:elapsed<18?1:elapsed<27?2:3,label=act3.querySelector("[data-act3-opening-countdown]");if(label)label.textContent=String(left).padStart(2,"0");act3.querySelectorAll("[data-act3-beat]").forEach(node=>node.classList.toggle("active",Number(node.dataset.act3Beat)===beat));if(!left)render(state);}const act4=document.querySelector("[data-act4-opening]");if(act4&&state.act4Intro){const now=Date.now(),left=Math.max(0,Math.ceil((state.act4Intro.endsAt-now)/1000)),elapsed=Math.max(0,now-state.act4Intro.startedAt),clip=Math.min(3,Math.floor(elapsed/10_000)),video=act4.querySelector("[data-act4-opening-video]"),label=act4.querySelector("[data-act4-opening-countdown]");if(label)label.textContent=String(left).padStart(2,"0");if(!left||video&&Number(video.dataset.clip)!==clip)render(state);}}

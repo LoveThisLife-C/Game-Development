@@ -187,7 +187,7 @@ one distinct repair attempt to every participant.
   opened-document activity remain entirely client-side and are not scored or
   stored in session state.
 - The technical cards explain transfer contamination, the advantage of speed,
-  finite protected air, three purge cycles only when Upper Ridge was restored,
+  finite protected air, one capsule purge per transfer and persistent receiver recovery,
   reduced purge effectiveness before roughly 60 seconds, and separate cabin
   and refuge reserves.
 - The exact retained-console sequence is shown consistently: keep Surface
@@ -221,7 +221,7 @@ one distinct repair attempt to every participant.
   contamination; player count is included later in protected-air endurance.
 - Players below lose crew chat and cannot act on surface controls or coach
   players above. Their terminal shows only refuge condition and, when
-  available, the shared purge control.
+  available, the five private investigation hotspots.
 - Upper Ridge RESTORED provides three shared refuge purge cycles; otherwise
   none exist. Purge consumes protected-air reserve and never restores perfect
   air. Repeating before approximately 60 seconds remains valid but removes less.

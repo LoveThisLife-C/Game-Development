@@ -20,6 +20,19 @@ Thumbs.db
 *.log
 /*-debug.png
 
+# Client handoff source packages (production runtime is extracted into
+# server/act5 and prototype/act5)
+/blackout-ridge-act5/
+/blackout-ridge-act5.zip
+/blackout-ridge-act7/
+/blackout-ridge-act7.zip
+/Blackout_Ridge_Act_6_Developer_Handover_v1_2.docx
+/Blackout_Ridge_Act_7_Developer_Handover_v1_2.docx
+
+# Local Codex recovery/session archives
+/2026/
+/rollout-*.jsonl
+
 # Python build caches
 __pycache__/
 *.py[cod]

@@ -121,6 +121,39 @@ official live interface. Their icon, color and typography direction is carried
 by the generated icon set and live semantic records. The generated local-site
 map remains in use for the map terminal at the user's request.
 
+## Act 7 evacuation plates
+
+The Act 7 batch extends the established wet industrial horror language across
+the critical cabin, physical transfer sequence, protected R-12 room and its
+private investigation hotspots. These plates are WebP runtime artwork; all
+authoritative instructions, values, names and state remain live HTML from the
+game engine.
+
+| File group | Intended use |
+|---|---|
+| `act7/opening-critical-cabin-v1.webp` | Critical cabin backdrop when the final evacuation opens |
+| `act7/transfer-*.webp` | Hatch, seal chamber and purge apparatus during physical transfer |
+| `act7/r12-protected-room-v1.webp` | Protected refuge fallback and room context |
+| `act7/hotspot-*.webp` | Private R-12 investigation views for Mara, CCTV, receiver, manuals and final console |
+
+## Act 6–7 production cinematics
+
+The production frame set under `act6/production/` and `act7/production/` replaces
+storyboard boards in the live runtime. The deterministic builder at
+`scripts/build-act67-cinematics.py` turns those clean, text-free WebP plates
+into synchronized H.264/AAC sequences under `prototype/assets/media/`.
+
+| File group | Intended use |
+|---|---|
+| `act6/production/nightmare-*.webp` | Fixed-camera nightmare progression without an impossible tower reveal |
+| `act7/production/walk-*.webp` | Increasingly altered private cabin walks before each transfer |
+| `act7/production/power-failure-v1.webp` | Emergency reserve generator and relay failure transition |
+| `act7/production/ending-f01-v1.webp` through the five numbered ending plates | Five outcome-specific final films and poster fallbacks |
+
+All captions and controls remain live HTML. The MP4 start position is derived
+from server timestamps so refreshed shared, player, and facilitator screens
+resume the same point in each sequence.
+
 ## Act 1 generated icon instruments
 
 The sixteen transparent WebP assets under `act1/icons/` were generated as one

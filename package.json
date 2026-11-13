@@ -10,8 +10,13 @@
     "test": "node --test tests/*.test.mjs",
     "check:dashboard": "node scripts/check-act2-dashboard.mjs",
     "check:act4": "node scripts/check-act4.mjs",
+    "check:act6": "node scripts/check-act6.mjs",
+    "check:act7": "node scripts/check-act7.mjs",
     "check": "node --check server/server.js && node --check server/game-engine.js && node --check server/game-content.js && node --check server/act4-content.js && node --check prototype/full-app.js && node --check prototype/act2-dashboard.js && node --check prototype/network.js && node --check prototype/audio.js && python3 scripts/validate-assets.py",
     "capture:m4": "node scripts/capture-milestone-4-screenshots.mjs",
     "report:m4": "python3 scripts/generate-milestone-reports.py"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
   }
 }

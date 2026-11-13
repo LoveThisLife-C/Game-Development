@@ -43,7 +43,7 @@ evidence lens:
    sustained result determines investigation time before R-12 reveals Mara.
 6. Investigate the Lark Shift archive, then teach every player the R-12 rules
    and three-part final surface procedure.
-7. Descend into R-12 in a hidden random order, manage shared refuge air, and
+7. Claim the single transfer chamber voluntarily, manage masks and shared receiver recovery, and
    have the final surface operator complete the learned rescue procedure alone.
 
 Act 1 establishes shared understanding without scoring or later mechanical
@@ -69,7 +69,7 @@ is broken, only deadline precision is lost. Archive activity is not scored or
 stored, and all terminals receive the same mandatory procedure: DISTRESS →
 EXTRACTION MESSAGE → RELEASE CONFIGURATION. Stage 7 activates one short
 physical transfer at a time. Players already below are isolated and may spend
-shared purge cycles independently. The last hidden player receives a 30-second
+independent R-12 exploration. After all arrivals, the crew receives a 60-second
 surface dashboard before their own transfer. Final refuge endurance is compared
 with the rescue delay created by effective status, message and release outcomes;
 the facilitator confirms that calculated record before debrief.

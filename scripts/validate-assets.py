@@ -20,7 +20,7 @@ def project_files():
         relative = path.relative_to(ROOT)
         # Downloadable client/video-production packages are not browser
         # runtime assets and may intentionally contain PNG source frames.
-        if ".git" in path.parts or "exports" in relative.parts or not path.is_file():
+        if ".git" in path.parts or "exports" in relative.parts or "blackout-ridge-act5" in relative.parts or not path.is_file():
             continue
         yield path
 

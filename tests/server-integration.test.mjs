@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import WebSocket from "ws";
 
 const storage=mkdtempSync(join(tmpdir(),"blackout-ridge-http-"));
 process.env.BLACKOUT_DATA_DIR=storage;
-const {createHttpServer}=await import("../server/server.js");
+const {createHttpServer,__sessions}=await import("../server/server.js");
 
 test("HTTP runtime enforces authentication, privacy, synchronization and live events",async t=>{
   const server=createHttpServer();
@@ -58,4 +59,27 @@ test("HTTP runtime enforces authentication, privacy, synchronization and live ev
   const activeLead=await request(`/api/sessions/${code}/state?token=${tokens.lead}`);
   assert.ok(activeLead.body.privateCard.title.length>5);assert.equal(activeLead.body.privateCard.body,"");
   assert.equal(activeLead.body.privateCard.notes.length,0);assert.ok(activeLead.body.privateCard.act1Screens.length>=1);
+
+  const act5Created=(await post("/api/sessions",{playerCount:4})).body,act5Players=[];
+  for(const role of ["lead","signal","systems","operations"]){
+    const joined=(await post(`/api/sessions/${act5Created.code}/join`,{name:`Act 5 ${role}`,role})).body;
+    act5Players.push(joined);
+  }
+  const act5Started=await post(`/api/sessions/${act5Created.code}/action`,{type:"START_ACT5_TEST"},act5Created.facilitatorToken);
+  assert.equal(act5Started.response.status,200);assert.equal(act5Started.body.stage,5);
+  __sessions.get(act5Created.code).act5Intro.endsAt=Date.now()-1;
+  await request(`/api/sessions/${act5Created.code}/state?token=${act5Players[0].playerToken}`);
+  const wsUrl=base.replace(/^http/,"ws")+`/act5-ws?session=${act5Created.code}&token=${act5Players[0].playerToken}&role=player&seat=1`;
+  await new Promise((resolve,reject)=>{
+    const ws=new WebSocket(wsUrl);let sent=false;
+    const timeout=setTimeout(()=>{ws.close();reject(new Error("Act 5 WebSocket acknowledgement timed out"));},3000);
+    ws.on("message",raw=>{
+      const message=JSON.parse(raw);
+      if(message.type==="state"&&!sent){sent=true;assert.ok(["ready","running"].includes(message.status));ws.send(JSON.stringify({type:"claim",station:"DOOR_BRACE",seq:1,epoch:0}));return;}
+      if(message.type==="ack"){
+        clearTimeout(timeout);try{assert.equal(message.status,"accepted");assert.equal(message.state.status,"running");assert.equal(message.state.stations.DOOR_BRACE,"1");ws.close();resolve();}catch(error){ws.close();reject(error);}
+      }
+    });
+    ws.on("error",reject);
+  });
 });

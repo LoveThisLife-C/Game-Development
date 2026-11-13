@@ -11,7 +11,7 @@
 | Physical investigation | Two locked destinations with distinct runner-observation / station-interpretation service games |
 | Field constraints | Act 3 equipment and plume forecast carry into Act 4 without reopening route or adding a second gas-management mechanic |
 | Mara rescue and crew survival | Parallel finale state and explicitly separate outcome labels |
-| Physical refuge and external rescue matrix | Hidden-order transfers, shared purge, solo surface controls and survival-time-versus-rescue-time resolution |
+| Physical refuge and external rescue matrix | Voluntary single-occupant transfers, capsule purge, five-control final console and survival-time-versus-rescue-time resolution |
 | Production outcomes | Clean Rescue, Close / Severe Rescue, Rescue With Casualties, Lark Shift Echo |
 | Participant care | Required pre-start briefing, private off-ramp language, Safety Pause, observer mode |
 | Single facilitator | One console controls timing, prompts, safety, recovery, resolution, and ending confirmation |

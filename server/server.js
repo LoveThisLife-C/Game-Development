@@ -2,12 +2,14 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { WebSocketServer, WebSocket } from "ws";
 import { addPlayer, applyAction, authorize, createSession, expireIfNeeded, publicState } from "./game-engine.js";
 import { publicContent } from "./game-content.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const publicDir = path.join(root, "prototype");
+const act5PublicDir = path.join(publicDir, "act5");
 const dataDir = process.env.BLACKOUT_DATA_DIR || path.join(root, "data");
 const dataFile = path.join(dataDir, "sessions.json");
 const port = Number(process.env.PORT || 4173);
@@ -76,22 +78,34 @@ function broadcast(session) {
 }
 
 function contentType(file) {
-  return ({ ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".css":"text/css; charset=utf-8", ".webp":"image/webp", ".svg":"image/svg+xml", ".json":"application/json; charset=utf-8", ".mp4":"video/mp4", ".wav":"audio/wav", ".ico":"image/x-icon" })[path.extname(file)] || "application/octet-stream";
+  return ({ ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".css":"text/css; charset=utf-8", ".webp":"image/webp", ".svg":"image/svg+xml", ".json":"application/json; charset=utf-8", ".mp4":"video/mp4", ".mp3":"audio/mpeg", ".wav":"audio/wav", ".ico":"image/x-icon" })[path.extname(file)] || "application/octet-stream";
 }
 
 function serveStatic(url, res) {
+  const act5Page=url.pathname.match(/^\/act5\/(player\/\d{1,3}|screen)$/);
+  const act5Requested=act5Page?(act5Page[1]==="screen"?"screen.html":"player.html"):decodeURIComponent(url.pathname.slice(1));
+  const act5File=path.resolve(act5PublicDir,act5Requested);
+  if((act5Page||url.pathname!=="/"&&fs.existsSync(act5File))&&act5File.startsWith(`${act5PublicDir}${path.sep}`)){
+    return fs.stat(act5File,(error,stat)=>{
+      if(error||!stat.isFile())return sendJson(res,404,{error:"Act 5 asset not found"});
+      res.writeHead(200,{"content-type":contentType(act5File),"content-length":stat.size,"cache-control":act5File.endsWith(".html")?"no-store":"public, max-age=300"});
+      fs.createReadStream(act5File).pipe(res);
+    });
+  }
   const requested = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
   const file = path.resolve(publicDir, requested);
   if (!file.startsWith(`${publicDir}${path.sep}`) && file !== path.join(publicDir, "index.html")) return sendJson(res, 403, { error: "Forbidden" });
   fs.stat(file, (error, stat) => {
     if (error || !stat.isFile()) return sendJson(res, 404, { error: "Not found" });
-    res.writeHead(200, { "content-type": contentType(file), "content-length": stat.size, "cache-control": file.endsWith(".html") ? "no-store" : "public, max-age=300" });
+    const liveUi=/\.(?:html|js|css)$/i.test(file);
+    res.writeHead(200, { "content-type": contentType(file), "content-length": stat.size, "cache-control": liveUi ? "no-store" : "public, max-age=300" });
     fs.createReadStream(file).pipe(res);
   });
 }
 
 export function createHttpServer() {
-  return http.createServer(async (req, res) => {
+  const act5Clients=new Map();
+  const server=http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     try {
       if (url.pathname === "/api/health") return sendJson(res, 200, { ok: true, sessions: sessions.size });
@@ -133,7 +147,7 @@ export function createHttpServer() {
         if (operation === "action" && req.method === "POST") {
           const body = await readJson(req), viewer = authorize(session, suppliedToken(req, url, body));
           if (viewer.kind === "public") return sendJson(res, 401, { error: "A valid role or facilitator token is required" });
-          applyAction(session, viewer, body.type, body.payload); persist(); broadcast(session);
+          applyAction(session, viewer, body.type, body.payload); persist(); broadcast(session);broadcastAct5(session);
           return sendJson(res, 200, publicState(session, viewer));
         }
       }
@@ -143,6 +157,67 @@ export function createHttpServer() {
       sendJson(res, 400, { error: error.message || "Request failed" });
     }
   });
+  const wss=new WebSocketServer({noServer:true,maxPayload:8192});
+  const act5Snapshot=(session,viewer)=>{
+    const state=publicState(session,viewer);
+    if(session.stage!==5||!state.cabinRun?.engine)throw new Error("Act 5 is not active");
+    return {type:"state",epoch:0,revision:session.revision,...state.cabinRun.engine,localDevelopment:false,developerInput:false};
+  };
+  function broadcastAct5(session){
+    for(const [ws,client] of act5Clients){
+      if(client.session!==session||ws.readyState!==WebSocket.OPEN)continue;
+      try{ws.send(JSON.stringify(act5Snapshot(session,client.viewer)));}catch{try{ws.close();}catch{}}
+    }
+  }
+  server.on("upgrade",(req,socket,head)=>{
+    let url;
+    try{url=new URL(req.url,`http://${req.headers.host||"localhost"}`);}catch{socket.destroy();return;}
+    if(url.pathname!=="/act5-ws"){socket.destroy();return;}
+    const session=sessions.get(String(url.searchParams.get("session")||"").toUpperCase());
+    const viewer=session?authorize(session,url.searchParams.get("token")||""):{kind:"public"};
+    const requestedRole=url.searchParams.get("role");
+    if(!session||session.stage!==5||!session.cabinRun?.engine||requestedRole==="player"&&viewer.kind!=="player"||requestedRole==="screen"&&!['public','player','facilitator'].includes(viewer.kind)){
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");return;
+    }
+    wss.handleUpgrade(req,socket,head,ws=>wss.emit("connection",ws,{session,viewer,role:requestedRole}));
+  });
+  wss.on("connection",(ws,client)=>{
+    if(client.viewer.kind==="player"&&[...act5Clients.values()].some(other=>other.viewer.kind==="player"&&other.session===client.session&&other.viewer.role===client.viewer.role)){
+      ws.close(4001,"Player already connected in another tab");return;
+    }
+    client.seq=0;client.receipts=new Map();act5Clients.set(ws,client);
+    ws.send(JSON.stringify(act5Snapshot(client.session,client.viewer)));
+    ws.on("message",raw=>{
+      let msg;
+      try{
+        msg=JSON.parse(raw);
+        if(client.role!=="player")throw Object.assign(new Error("Read-only cabin display"),{code:"READ_ONLY"});
+        if(!Number.isSafeInteger(msg.seq)||msg.seq<1)throw Object.assign(new Error("Invalid action sequence"),{code:"INVALID_SEQUENCE"});
+        if(msg.epoch!==0)throw Object.assign(new Error("Stale Act 5 session"),{code:"STALE_EPOCH"});
+        if(msg.seq<=client.seq){const prior=client.receipts.get(msg.seq);if(prior){ws.send(JSON.stringify({...prior,duplicate:true}));return;}throw Object.assign(new Error("Old action sequence"),{code:"STALE_SEQUENCE"});}
+        client.seq=msg.seq;
+        applyAction(client.session,client.viewer,"ACT5_ACTION",{action:msg});persist();broadcast(client.session);
+        const receipt={type:"ack",epoch:0,seq:msg.seq,status:"accepted",code:"APPLIED",message:"Action applied",state:act5Snapshot(client.session,client.viewer)};
+        client.receipts.set(msg.seq,receipt);if(client.receipts.size>256)client.receipts.delete(client.receipts.keys().next().value);
+        ws.send(JSON.stringify(receipt));broadcastAct5(client.session);
+      }catch(error){
+        const receipt={type:"ack",epoch:0,seq:Number.isSafeInteger(msg?.seq)?msg.seq:null,status:"rejected",code:error.code||"INVALID_ACTION",message:error.message||"Action rejected",state:act5Snapshot(client.session,client.viewer)};
+        try{ws.send(JSON.stringify(receipt));}catch{}
+      }
+    });
+    ws.on("close",()=>{
+      act5Clients.delete(ws);
+      if(client.viewer.kind==="player"&&client.session.stage===5&&client.session.stageStatus==="live"){
+        try{applyAction(client.session,client.viewer,"ACT5_ACTION",{action:{type:"release"}});persist();broadcast(client.session);broadcastAct5(client.session);}catch{}
+      }
+    });
+  });
+  const act5PublishTimer=setInterval(()=>{
+    for(const session of new Set([...act5Clients.values()].map(client=>client.session)))broadcastAct5(session);
+  },250);
+  act5PublishTimer.unref();
+  server.on("close",()=>clearInterval(act5PublishTimer));
+  return server;
 }
 
 restore();
